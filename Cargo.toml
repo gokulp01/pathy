@@ -1,0 +1,13 @@
+[package]
+name = "pathy"
+version = "0.1.0"
+edition = "2021"
+
+description = "Zed extension wrapper for a sidecar path-completion LSP."
+license = "MIT"
+repository = "https://github.com/placeholder/zed-pathy"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]

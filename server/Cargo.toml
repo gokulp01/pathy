@@ -1,0 +1,10 @@
+[package]
+name = "pathy-server"
+version = "0.1.0"
+edition = "2021"
+
+description = "Sidecar LSP server for path completions (skeleton)."
+license = "MIT"
+repository = "https://github.com/placeholder/zed-pathy"
+
+[dependencies]
