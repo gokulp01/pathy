@@ -1,330 +1,506 @@
-# AGENTS.md — Codex Working Agreement (Phase 2: Minimal Working Path Completions)
+# AGENTS.md — Codex Working Agreement (Phase 3: “Editor-Quality” Path Intellisense)
 
-This repo is a **Zed extension** that launches a **sidecar LSP server** to provide **filesystem path completions inside Python string literals**.
+This repository contains:
+- A **Zed extension** (Rust → WASM) that launches a sidecar Language Server.
+- A **sidecar LSP server** (in `server/`) that provides **filesystem path completions inside Python string literals**.
 
-Codex: treat this file as the source of truth for Phase 2. If there is any conflict between user prompts and this file, follow this file.
+Codex: treat this file as the source of truth for **Phase 3**. If a user prompt conflicts with this file, follow this file.
 
 ---
 
-## 0) Project North Star (do not lose sight)
+## 0) Project North Star (do not drift)
 
 ### What we are building
-- A **Zed extension (Rust → WASM)** that launches a **secondary** Python language server.
-- A **native LSP server** (separate project in `server/`) that implements **only** what we need for:
-  - `textDocument/completion` → filesystem path suggestions
-- The sidecar server must **augment** the user’s main Python LSP (pyright/basedpyright/ruff-lsp/etc.), not replace it.
+We are building a **Zed-native, LSP-based Path Intellisense** experience for Python:
+- When the user types inside a Python string that represents a file path, they get completion suggestions from the filesystem.
+- The experience should feel “obvious and dependable”:
+  - works in the common cases without manual babysitting
+  - avoids noisy suggestions in non-path strings
+  - respects user preferences (base dir, ignore patterns, hidden files, separators, etc.)
+  - remains fast (no recursion, no full indexing)
 
-### Hard constraints (non-negotiable)
-- No editor keystroke hooks / direct buffer edits: deliver functionality via **LSP completions**.
-- The sidecar server must **not** claim features like definition/rename/hover; it should advertise **completion only** to avoid interfering.
-- Keep Phase 2 small and shippable: “It works” > “It’s perfect”.
-
----
-
-## 1) Phase 2 Scope (THIS PHASE ONLY)
-
-### Phase 2 goal
-Deliver a **minimal, working MVP**:
-1) The LSP server can run (stdio) and serve completions.
-2) When editing Python in Zed, inside a string literal, typing a path-ish prefix produces filesystem completion suggestions.
-3) Zed extension launches this server as an additional Python language server.
-4) Local manual testing instructions exist and are reliable.
-
-### Phase 2 non-goals
-Do NOT implement these yet (Phase 3+):
-- Downloading binaries / release automation
-- Workspace indexing or recursive scanning
-- `.gitignore`-aware results
-- Deep Python AST parsing or full call-site awareness
-- Perfect parsing of triple-quoted strings, f-strings, or raw-string edge cases
-- Snippets / tabstops / code actions
-- UI beyond standard completion menu
-- Performance tuning beyond basic safety caps and a small cache
+### Core constraints (non-negotiable)
+1) **No editor keypress hooks / no direct buffer edits**: only LSP completion.
+2) The sidecar server is **secondary** and must **not interfere** with primary Python LSP (pyright/basedpyright/ruff-lsp).
+3) The server must **advertise completion-only capability** (no hover/definition/rename/code actions).
+4) Phase 3 does **not** include distribution automation or binary downloads (that is Phase 4).
 
 ---
 
-## 2) Definition of Done (Phase 2)
+## 1) Phase 3 Scope (THIS PHASE ONLY)
 
-Phase 2 is “done” when all are true:
-- ✅ `server/` builds and runs locally with `cargo run` (or equivalent), serving LSP over stdio.
-- ✅ The server responds to:
-  - initialize / shutdown / exit
-  - textDocument/didOpen
-  - textDocument/didChange
-  - textDocument/completion
-- ✅ The completion feature works in Zed for Python:
-  - User can type `open("./")` and trigger completion (auto or manual) and see filesystem suggestions.
-- ✅ The extension launches the server for Python without breaking the user’s main Python LSP.
-- ✅ Repo has clean Git hygiene:
-  - `target/` directories are ignored and not committed.
-- ✅ README contains a Phase 2 “Local Testing” section with exact steps.
+### Phase 3 goal
+Upgrade the Phase 2 MVP into an “editor-quality” feature by adding:
+
+A) **Context awareness (“smart gating”)**
+- Only show filesystem path completions when the string is likely a filepath:
+  - common path-taking functions and constructors (e.g., `open(...)`, `Path(...)`, `read_*` APIs)
+  - common library calls (e.g., pandas `read_csv`, `read_parquet`, etc.)
+- Still allow a fallback: if the user types a clearly path-like prefix (`./`, `../`, `/`, `~`, drive/UNC), show completions anywhere in a string.
+
+B) **User configuration support**
+Expose settings that users can set via Zed’s LSP settings mechanism (Phase 2 already had a basic setup; Phase 3 makes it complete, documented, and stable):
+- base directory strategy
+- ignore patterns
+- show hidden files
+- max results
+- separator behavior (prefer `/` vs OS-native)
+- directory insertion behavior (trailing slash)
+- trigger behavior
+
+C) **Robustness and cross-platform correctness**
+- Better string literal detection (without needing a full Python parser in Phase 3)
+- More complete Windows prefix handling (drive letters, UNC paths), while keeping portable defaults
+- Better path segment extraction and replacement ranges
+- Better behavior in unsaved files and multi-root workspaces
+
+D) **Performance and reliability improvements**
+- More resilient caching (bounded, TTL, safe invalidation)
+- Avoid expensive I/O and huge directory listings
+- Deterministic sorting and filtering
+
+E) **Testing + docs**
+- Expand unit tests to cover config parsing, context gating, Windows cases, and segment extraction.
+- Improve README with:
+  - configuration reference
+  - “why/when completions appear”
+  - troubleshooting
+  - known limitations (clearly)
+
+### Phase 3 non-goals (hard stops)
+Do NOT implement yet:
+- Downloading server binaries / GitHub Releases / CI distribution
+- Recursive indexing / background crawling
+- `.gitignore` parsing (optional future; not required in Phase 3)
+- Full Python AST parsing via heavy frameworks unless absolutely necessary
+- Snippet/tabstop insertion (plain completion is fine)
+- UI panes, trees, or non-standard Zed UI integrations
+- Any LSP features beyond completion
 
 ---
 
-## 3) Repository Layout (expected after Phase 2)
+## 2) Definition of Done (Phase 3)
+
+Phase 3 is “done” when all items are true:
+
+### Functionality
+- ✅ Path completions appear in Python strings in “obvious path contexts” without requiring explicit prefixes.
+- ✅ Path completions still appear anywhere if the user types a clearly path-like prefix.
+- ✅ Completions are not annoyingly noisy in arbitrary non-path strings.
+
+### Configuration
+- ✅ Documented user settings work (Zed settings → server config).
+- ✅ Changing config (restart or configuration change) produces expected behavior.
+- ✅ Default settings are sensible and safe.
+
+### Correctness
+- ✅ Correct replacement range: only the current path segment is replaced.
+- ✅ Reasonable handling of:
+  - `./`, `../`, `/`, `~`
+  - Windows drive prefixes (e.g., `C:\`) and UNC (e.g., `\\server\share`)
+- ✅ No recursion; listing is bounded; server remains responsive.
+
+### Integration
+- ✅ Sidecar remains completion-only; does not interfere with “go to definition” and other features from primary Python LSP.
+- ✅ Zed extension still launches server reliably with minimal capabilities (no downloads).
+
+### Quality
+- ✅ Expanded unit tests pass.
+- ✅ README updated with:
+  - configuration reference
+  - examples
+  - troubleshooting
+  - limitations
+- ✅ Git hygiene: no `target/` artifacts committed; `.gitignore` remains correct.
+
+---
+
+## 3) Expected Repo Layout (Phase 3)
 
 Root:
 - `extension.toml`
-- `Cargo.toml`, `src/lib.rs` (extension WASM)
-- `server/`:
-  - `Cargo.toml`, `src/main.rs` (LSP server)
+- `Cargo.toml`, `src/lib.rs`
+- `.gitignore`
 - `README.md`, `LICENSE`, `AGENTS.md`
-- `.gitignore` includes `target/` and `server/target/`
 
-No build output directories should be committed.
+Server:
+- `server/Cargo.toml`, `server/src/...`
+- `server` modules may be split (e.g., `completion`, `config`, `context`, `cache`, `paths`) as long as it stays small and readable.
 
----
-
-## 4) Zed Integration Requirements
-
-### 4.1 Sidecar must be a *secondary* Python language server
-- The user should keep their main Python LSP first.
-- Our server should be listed after it in:
-  - `languages.Python.language_servers`
-
-Codex must:
-- Update README with a **copy/paste settings snippet** showing how to add this server without removing defaults (use `...` semantics where applicable).
-
-### 4.2 Extension capabilities
-- If Zed requires capabilities to spawn processes, Phase 2 must:
-  - request the minimal capability needed to execute a local binary (`process:exec`)
-  - document how the user can grant it in settings if needed
-- Phase 2 must NOT request download/install capabilities.
-
-### 4.3 Don’t interfere with other LSP features
-- In LSP `initialize` response, advertise only:
-  - `completionProvider` (and minimal fields needed)
-- Do not implement handlers or advertise capabilities for:
-  - definition, references, rename, hover, formatting, codeAction, etc.
+No build output directories committed.
 
 ---
 
-## 5) LSP Server: Minimal Protocol Contract
+## 4) Codex Working Rules (apply always)
 
-Codex must implement the minimal subset correctly and robustly:
-
-### 5.1 Must support
-- `initialize` → record `rootUri`/`rootPath` if provided
-- `initialized` (can be no-op)
-- `shutdown` and `exit`
-- `textDocument/didOpen` → store text by URI
-- `textDocument/didChange` (incremental preferred; full-sync acceptable for MVP if documented)
-- `textDocument/completion` → compute and return items
-
-### 5.2 Logging
-- Log to **stderr** (never stdout), because stdout is reserved for LSP JSON-RPC.
-- Keep logs concise; include a debug flag in server args if helpful.
-
-### 5.3 Dependencies policy (strict)
-- You may add the minimal Rust crates needed for LSP and JSON-RPC.
-- Use a small, standard set (e.g., `lsp-server` + `lsp-types`, or `tower-lsp`) but do not add extra frameworks.
-- If you add a crate, document why in a short comment in `server/Cargo.toml` or README.
-
----
-
-## 6) Completion Behavior Specification (MVP rules)
-
-### 6.1 When to offer completions
-Offer path completions only when ALL are true:
-1) The file is a Python document (language id or file extension `.py`).
-2) The cursor is within a string literal (MVP heuristic acceptable).
-3) The text immediately before the cursor has a **path-ish prefix**, e.g.:
-   - `./`
-   - `../`
-   - `/`
-   - `~`
-   - (optional) `C:\` or `\\server\share` on Windows
-
-If any condition fails, return:
-- `null` or empty list (depending on LSP server library style).
-
-### 6.2 “Inside string literal” heuristic (Phase 2)
-Phase 2 does NOT require a full Python parser. MVP heuristic should:
-- Operate at least on the current line and possibly a small window around the cursor.
-- Handle single and double quotes on the same line.
-- Avoid offering completions if the cursor appears outside quotes.
-- It’s okay to miss some cases; document limitations.
-
-### 6.3 What entries to suggest
-- List immediate children of the resolved directory:
-  - directories and files
-- Suggested ordering:
-  - directories first (optional)
-  - then files
-- Filter by the typed prefix after the directory boundary.
-
-### 6.4 What to insert
-- Only replace the “current path segment” (not the entire string).
-- Use an LSP `textEdit` (or insertText + range) to:
-  - replace the segment from segmentStart..cursor with the completion remainder or full entry as appropriate.
-- If the selected entry is a directory:
-  - optionally append `/` and keep completion usable (Phase 2 may not keep menu open; ok)
-
-### 6.5 Safety caps (must have)
-- Cap number of returned items (e.g., 50 or 100).
-- If a directory listing is huge, stop early.
-- Never recursively scan.
-
----
-
-## 7) Path Resolution Rules (MVP)
-
-### 7.1 Determine base directory
-Given `documentUri`:
-- If URI maps to a real file path:
-  - base for relative paths (`./`, `../`, no leading slash) should default to **directory of current file**
-- If URI is not a real file path (unsaved buffer):
-  - fallback to `rootUri` from initialize if available
-  - otherwise return no completions
-
-### 7.2 Interpret prefixes
-- `./foo` → base = fileDir
-- `../foo` → base = parent(fileDir)
-- `/foo` (Unix) → base = `/`
-- `~` → base = user home (if resolvable)
-- Windows:
-  - `C:\foo` → base = `C:\`
-  - `\\server\share\foo` → base = `\\server\share\`
-
-### 7.3 Normalize separators
-- Phase 2 can choose one strategy and document it:
-  - Prefer `/` insertions for Python portability (recommended), OR
-  - Use OS-native separators
-- Whatever you choose: be consistent and document it.
-
----
-
-## 8) Performance & Caching (minimum viable)
-
-### 8.1 Directory listing cache
-Implement a tiny cache to avoid re-reading the same directory on every keystroke:
-- Key: absolute directory path
-- Value: list of entries + timestamp
-- TTL: short (e.g., 250ms–2s)
-- Keep size bounded (e.g., last 32 directories)
-
-### 8.2 Avoid slow operations
-- Don’t stat every file if not needed.
-- Don’t resolve symlinks recursively.
-- Prefer “list names first” and only mark dir/file if cheap.
-
----
-
-## 9) Testing Requirements (Phase 2)
-
-### 9.1 Unit tests (server)
-Add tests for logic that does not require running Zed:
-- Extracting “current segment” boundaries within a string
-- Detecting path-ish prefixes
-- Resolving base directories given:
-  - file path
-  - root uri fallback
-- Filtering and sorting items
-
-Tests should run with `cargo test` in `server/`.
-
-### 9.2 Manual test plan (must be documented in README)
-Codex must add a “Local Testing (Phase 2)” section with:
-1) How to build and run the server (`cargo build` / `cargo run`)
-2) How to build/install the dev extension in Zed
-3) The Zed settings snippet to enable the sidecar server for Python
-4) A minimal Python snippet to test:
-   - `open("./")`
-   - `open("../")`
-   - `open("~/")` (if supported)
-5) Where to look for logs:
-   - `zed: open log` or `zed --foreground`
-
-### 9.3 Acceptance checklist (copy/paste into README)
-Include a short checklist the user can tick:
-- completions appear
-- selecting inserts correct text
-- no interference with go-to-definition from main Python LSP
-- no crash if directory doesn’t exist
-
----
-
-## 10) Git Hygiene (mandatory)
-
-### 10.1 Ignore build artifacts
-Ensure `.gitignore` exists and includes:
-- `/target/`
-- `/server/target/`
-No `target/` directories should ever be committed.
-
-### 10.2 Phase 2 commits
-- Use a single clear commit after Phase 2 is stable:
-  - `phase 2: minimal path completions via sidecar LSP`
-- Use intermediate checkpoint commits if needed, but keep history readable.
-
----
-
-## 11) Codex Execution Rules (how to behave)
-
-### 11.1 Always begin with a plan
+### 4.1 Start with a plan
 Before editing files, Codex must:
-- describe the plan
-- list files to touch
-- list commands it expects to run
+1) Summarize the task
+2) List files to change/create
+3) Outline steps in the order they will be implemented
+4) State assumptions and confirm constraints (completion-only, no Phase 4 features)
 
-### 11.2 Prefer smallest working increment
-- First: make server respond to initialize/shutdown.
-- Second: store document text.
-- Third: implement simplest completion with hardcoded directory (for a quick smoke test).
-- Fourth: implement real path extraction and listing.
+### 4.2 Keep diffs small and focused
+- Prefer incremental PR-sized changes even within Phase 3.
+- Avoid refactors unrelated to gating/config/correctness.
+- Do not churn formatting in unrelated files.
 
-### 11.3 If something fails
-- Do not “thrash” with repeated large changes.
-- Report the failure reason, propose 1–2 fixes, choose the safest one.
+### 4.3 No surprise dependencies
+- Do not add new crates unless needed.
+- If adding a crate:
+  - justify why it is necessary
+  - prefer lightweight, widely-used crates
+  - avoid heavy parsing frameworks unless absolutely needed
 
-### 11.4 No scope creep
-Do not add:
-- downloads
-- release workflows
-- complex settings schemas
-- AST parsing frameworks
-Unless explicitly requested and outside Phase 2.
+### 4.4 Always validate
+- Run formatting and tests.
+- If something fails, report precisely why and propose minimal fixes.
 
----
-
-## 12) Troubleshooting Guidance (to include in README)
-
-README must include a “Troubleshooting” section:
-- If completions don’t appear:
-  - manually trigger completion in Zed (e.g., Ctrl-Space)
-  - verify the server is running (logs)
-  - confirm language server ordering in settings
-- If server won’t launch:
-  - check extension capabilities requirements
-  - ensure server binary exists and is executable
-- If WASM build fails:
-  - ensure Rust WASI target is installed (`wasm32-wasip1` is common now)
-  - re-run build and check logs
+### 4.5 No secrets / no credentials
+- Never request or embed tokens.
+- No network calls required for Phase 3.
 
 ---
 
-## 13) Explicit Phase 2 Deliverables (file-by-file)
+## 5) Configuration Contract (Phase 3)
+
+### 5.1 Where config comes from
+The server must be configurable via Zed’s LSP settings mechanism.
+Implementation MUST support at least one of:
+- `workspace/didChangeConfiguration` (preferred)
+- `workspace/configuration` request (if client uses it)
+- `initialize.initializationOptions` (fallback)
+
+Codex must implement a robust approach:
+- On initialize: set defaults
+- Then attempt to read user settings if provided
+- Support updates (if Zed sends configuration changes)
+
+### 5.2 Config schema (MUST document in README)
+Define settings with stable names and defaults. Recommended keys (you may adjust names, but keep them stable once chosen):
+
+#### Behavior / gating
+- `enable`: bool (default: true)
+- `path_prefix_fallback`: bool (default: true)
+- `context_gating`: enum (default: "smart")
+  - "off": always show completions in any string when manual trigger occurs
+  - "smart": show in known contexts + prefix fallback
+  - "strict": only known contexts, no fallback (only if user opts in)
+
+#### Base directory
+- `base_dir`: enum (default: "file_dir")
+  - "file_dir": directory of the current file
+  - "workspace_root": worktree root
+  - "both": offer both (implementation: merge lists or prefer one)
+- `workspace_root_strategy`: enum (default: "lsp_root_uri")
+  - "lsp_root_uri": use initialize rootUri
+  - "file_parent_chain": walk up from file until repo markers (optional, Phase 3 can skip)
+  - "disabled": never use workspace root
+
+#### Listing and filtering
+- `max_results`: int (default: 80)
+- `show_hidden`: bool (default: false)
+- `include_files`: bool (default: true)
+- `include_directories`: bool (default: true)
+- `directory_trailing_slash`: bool (default: true)
+- `ignore_globs`: array[string] (default: common ignores below)
+  - Suggested defaults:
+    - "**/.git/**"
+    - "**/.venv/**"
+    - "**/venv/**"
+    - "**/__pycache__/**"
+    - "**/.pytest_cache/**"
+    - "**/.mypy_cache/**"
+    - "**/.ruff_cache/**"
+    - "**/node_modules/**"
+
+#### Paths and separators
+- `prefer_forward_slashes`: bool (default: true)
+- `expand_tilde`: bool (default: true)
+- `windows_enable_drive_prefix`: bool (default: true)
+- `windows_enable_unc`: bool (default: true)
+
+#### Performance / cache
+- `cache_ttl_ms`: int (default: 500)
+- `cache_max_dirs`: int (default: 64)
+- `stat_strategy`: enum (default: "lazy")
+  - "none": don’t stat; treat unknown as file
+  - "lazy": stat only needed entries (recommended)
+  - "eager": stat all (avoid unless necessary)
+
+### 5.3 Backwards compatibility
+- If Phase 2 already documented certain keys, keep them working.
+- Unknown keys must be ignored without crashing.
+- Invalid values must fall back to defaults with a logged warning (stderr).
+
+---
+
+## 6) Completion Behavior Spec (Phase 3)
+
+### 6.1 High-level algorithm (must remain deterministic)
+On `textDocument/completion`:
+1) Load document text for the URI (must exist; otherwise return none).
+2) Determine if the cursor is inside a Python string literal (heuristic).
+3) Extract:
+   - the string content around cursor
+   - the “current path segment” and its replacement range
+4) Decide if completion should be offered:
+   - If prefix fallback matches: offer
+   - Else if context gating matches known call-sites: offer
+   - Else: return none
+5) Resolve base directory:
+   - according to `base_dir` setting and the detected prefix type
+6) List directory entries (bounded, cached)
+7) Filter by typed prefix in the segment
+8) Convert to LSP completion items
+9) Return results (bounded)
+
+### 6.2 String literal detection (Phase 3 target)
+Phase 2 was line-based and limited. Phase 3 should improve while staying lightweight:
+
+Minimum improvements:
+- handle escaped quotes on the same line
+- handle raw strings heuristically (`r"..."`, `r'...'`) for escaping decisions
+- handle f-strings heuristically:
+  - completions should apply only in literal portions (not inside `{...}`) in Phase 3 if feasible
+- triple quotes are optional but recommended if not too hard:
+  - simplest acceptable approach: if the cursor is within a triple-quoted string on the same line as opening delimiter, treat as string; otherwise document limitation
+
+Be honest in README about what is and isn’t supported.
+
+### 6.3 Context gating rules (“smart” mode)
+Context gating is a filter: only show completions in likely-path argument strings.
+
+Implement a pragmatic approach:
+- Identify the immediate call expression / function name near the cursor
+- If the cursor is inside the first positional arg or a named arg known to be a path, allow completions
+
+Phase 3 must include at least these canonical contexts:
+- Builtins / stdlib:
+  - `open(...)`
+  - `Path(...)` (from `pathlib`)
+  - `os.path.*` functions that take paths (optional)
+- Common patterns:
+  - `with open("...") as f:`
+  - `Path("...") / "child"` (if cursor is in the string literal)
+- Common libraries (minimal list; configurable in the future):
+  - `pandas.read_csv`, `read_parquet`, `read_json`, `read_excel` (best-effort)
+
+Additionally:
+- Always allow when string prefix is path-like (fallback).
+
+### 6.4 Path-like prefix fallback (must remain)
+Regardless of context gating, if the prefix before cursor matches:
+- `./`, `../`, `/`, `~`
+- Windows:
+  - drive letter + `:\` or `:/`
+  - UNC `\\server\share\`
+then completions are allowed.
+
+### 6.5 Segment extraction and replacement range (Phase 3 target)
+- Replacement should start at the beginning of the current path segment inside the string.
+- It must not overwrite:
+  - the opening quote
+  - earlier parts of the string not part of the segment
+- It must not insert outside the string.
+
+Define clear segment boundaries:
+- Segment begins after the last path separator (`/` or `\`) in the string content before cursor
+- Segment ends at cursor (Phase 3 can ignore selection/range expansions)
+
+### 6.6 Insert behavior
+- Directory entries:
+  - insert trailing `/` (configurable)
+- Preserve prefix style:
+  - If user typed `../`, keep it
+  - If user typed `~`, expand or not based on config:
+    - If `expand_tilde` is false, preserve `~` and resolve internally only for listing
+- Separator policy:
+  - If `prefer_forward_slashes` true: insert `/` even on Windows unless user is clearly typing `\` paths and config says otherwise
+  - Must be deterministic and documented
+
+### 6.7 Completion triggering
+- Server may provide `triggerCharacters` (e.g., `/`, `\`, `.`) but must not rely on them.
+- Manual invocation (Ctrl-Space / Show Completions) must always work.
+
+---
+
+## 7) Windows & Cross-Platform Support (Phase 3)
+
+Minimum Phase 3 expectations:
+- Recognize drive prefixes:
+  - `C:\` and `C:/`
+- Recognize UNC prefixes when enabled:
+  - `\\server\share\`
+- Avoid generating broken Python escape sequences:
+  - If inserting backslashes into non-raw strings, escape them or prefer forward slashes.
+Recommended default:
+- insert forward slashes for portability unless config requests OS-native.
+
+Document Windows notes in README:
+- how to type raw strings if they want backslashes
+- how the server inserts separators by default
+
+---
+
+## 8) Performance & Reliability Requirements (Phase 3)
+
+### 8.1 No recursion, no indexing
+- List only one directory level per completion request.
+- Never walk the entire workspace.
+
+### 8.2 Cache behavior
+- Cache directory listings with TTL and max size.
+- Must be bounded and safe:
+  - no unbounded memory growth
+  - eviction policy (LRU or simple FIFO) is fine
+
+### 8.3 Safety caps
+- Always cap results.
+- If a directory listing is huge, stop early.
+- Avoid blocking for long:
+  - If listing is slow, return partial results rather than hanging.
+
+### 8.4 Error handling
+- Missing directory → return empty list, not error
+- Permission denied → return empty list, log once
+- Broken symlink / IO error → skip entry and continue
+
+---
+
+## 9) Logging & Observability (Phase 3)
+
+- Log only to stderr.
+- Provide a debug mode (env var or flag) to increase verbosity.
+- Never spam logs on every keystroke unless debug mode is enabled.
+- Include one-line summaries for:
+  - config loaded (once)
+  - cache hits/misses (debug only)
+  - why completion was gated off (debug only)
+
+---
+
+## 10) Testing Requirements (Phase 3)
+
+### 10.1 Unit tests (must expand)
+Add tests for:
+- config parsing and defaulting
+- context gating decisions (open/Path/read_csv examples)
+- prefix fallback decisions
+- Windows prefix parsing (if implemented)
+- segment extraction boundaries and replacement ranges
+- ignore patterns filtering (at least basic)
+
+Tests must run via:
+- `cargo test` in `server/`
+
+### 10.2 Deterministic filesystem tests
+Where filesystem is required:
+- use temp directories created during tests
+- create small synthetic trees
+- avoid relying on developer machine contents
+
+### 10.3 Manual test checklist (must update README)
+Provide a Phase 3 checklist:
+- examples where completions SHOULD appear (open, Path, pandas)
+- examples where completions SHOULD NOT appear (random string)
+- examples of prefix fallback (any string with `./`)
+- Windows-specific (if available)
+
+---
+
+## 11) Documentation Requirements (Phase 3)
+
+README must include:
+1) What the extension does (short)
+2) How to install as dev extension (unchanged)
+3) How to build the server (unchanged)
+4) Configuration reference:
+   - every setting, meaning, default
+   - example `settings.json` snippet showing `lsp.<server_id>.settings`
+5) “When do completions appear?” explanation:
+   - smart gating + prefix fallback
+6) Troubleshooting:
+   - logs
+   - capability grants
+   - server ordering
+7) Known limitations:
+   - be explicit (triple quotes, f-strings, etc.)
+
+---
+
+## 12) Git Hygiene (mandatory)
+
+- `.gitignore` must ignore:
+  - `/target/`
+  - `/server/target/`
+- Do not commit build artifacts.
+- Keep commits focused and readable:
+  - ideally one Phase 3 commit: `phase 3: context-aware + configurable path completions`
+  - checkpoint commits allowed, but avoid noise
+
+---
+
+## 13) Security & Safety (Phase 3)
+
+- No network calls.
+- No downloading.
+- No executing arbitrary commands beyond what the extension already needs to launch the local server.
+- Do not broaden extension capabilities beyond what is already necessary.
+- Never read outside the workspace unless the user explicitly types an absolute path (and config allows it).
+
+---
+
+## 14) Codex Process Checklist (what you must do each run)
+
+Before edits:
+- [ ] Summarize plan
+- [ ] List files to touch
+- [ ] Confirm no Phase 4 features
+- [ ] Confirm completion-only advertising remains
+
+During edits:
+- [ ] Keep diffs minimal
+- [ ] Add tests for new logic
+- [ ] Update README if behavior/config changes
+
+After edits:
+- [ ] Run `cargo fmt` and `cargo test` in server/
+- [ ] Summarize: what changed, why, commands run, limitations
+- [ ] Ensure repo is clean: `git status` shows no target artifacts
+
+---
+
+## 15) Explicit Phase 3 Deliverables (file-by-file)
 
 ### `server/`
-- Implement LSP server in `server/src/main.rs` (or split into modules if it stays small).
-- Add tests under `server/tests/` or `server/src/...` as appropriate.
+- Add/extend modules for:
+  - configuration handling
+  - context gating logic
+  - improved string/segment extraction
+  - Windows prefix support (if enabled)
+- Expand tests (prefer multiple small test files).
 
-### Extension (`src/lib.rs` + `extension.toml`)
-- Ensure extension registers a language server command for Python.
-- Make server command predictable for local dev:
-  - either call `server/target/debug/<bin>` with documented build step
-  - or call `<bin>` from PATH (document how to install)
+### Extension (`src/lib.rs`, `extension.toml`)
+- Ensure server launch remains stable.
+- Ensure language server remains registered for Python.
+- Do not add download logic.
+
+### `.gitignore`
+- Ensure build artifacts ignored (already done; verify).
 
 ### `README.md`
-- Add “Local Testing (Phase 2)” + troubleshooting + settings snippet.
+- Add configuration reference
+- Add “when completions appear” explanation
+- Update manual test plan and troubleshooting
 
 ---
 
-## 14) What NOT to do (hard stops)
+## 16) What NOT to do (hard stops)
 
-- Do not introduce binary downloads or network calls.
-- Do not claim additional LSP capabilities beyond completion.
-- Do not remove or reorder user’s primary Python LSP by default; document how to add ours as secondary.
-- Do not commit `target/` directories.
+- Do not implement release/download pipeline.
+- Do not implement non-completion LSP features.
+- Do not add heavy parsing frameworks without explicit justification.
+- Do not break Phase 2 basic functionality while improving gating/config.
 
 ---

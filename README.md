@@ -1,8 +1,8 @@
 # Pathy (Zed Extension + Sidecar LSP)
 
-Pathy is a Zed extension scaffold for a sidecar LSP server that will provide
-filesystem path completions inside Python string literals. This Phase 1 repo
-contains only the minimal extension and server skeletons.
+Pathy is a Zed extension that launches a sidecar LSP server to provide
+filesystem path completions inside Python string literals. The server is
+completion-only and runs as a secondary Python language server.
 
 ## Extension (WASM crate)
 
@@ -25,7 +25,7 @@ WASM target (older toolchains used `wasm32-wasi`).
 2. Choose Install Dev Extension.
 3. Select this repo root (the folder containing `extension.toml`).
 
-## Server (sidecar LSP skeleton)
+## Server (sidecar LSP)
 
 The server lives in `server/` as a standalone Rust project.
 
@@ -35,17 +35,94 @@ Build:
 cargo build
 ```
 
-Run (placeholder):
+Run:
 
 ```sh
 cargo run
 ```
 
-## Configuration (future)
+## Configuration (Phase 3)
 
-Configuration will live in Zed extension settings in later phases.
+Configure the server via Zed settings. Keep your primary Python LSP first and
+add `pathy` after it:
 
-## Local Testing (Phase 2)
+```json
+{
+  "languages": {
+    "Python": {
+      "language_servers": [
+        "pyright",
+        "pathy",
+        "..."
+      ]
+    }
+  },
+  "lsp": {
+    "pathy": {
+      "settings": {
+        "enable": true,
+        "context_gating": "smart",
+        "base_dir": "file_dir",
+        "max_results": 80,
+        "show_hidden": false,
+        "ignore_globs": [
+          "**/.git/**",
+          "**/.venv/**",
+          "**/venv/**",
+          "**/__pycache__/**",
+          "**/.pytest_cache/**",
+          "**/.mypy_cache/**",
+          "**/.ruff_cache/**",
+          "**/node_modules/**"
+        ]
+      }
+    }
+  }
+}
+```
+
+### Settings reference
+
+Behavior / gating:
+- `enable` (bool, default: true)
+- `path_prefix_fallback` (bool, default: true)
+- `context_gating` ("off" | "smart" | "strict", default: "smart")
+
+Base directory:
+- `base_dir` ("file_dir" | "workspace_root" | "both", default: "file_dir")
+- `workspace_root_strategy` ("lsp_root_uri" | "disabled", default: "lsp_root_uri")
+
+Listing and filtering:
+- `max_results` (int, default: 80)
+- `show_hidden` (bool, default: false)
+- `include_files` (bool, default: true)
+- `include_directories` (bool, default: true)
+- `directory_trailing_slash` (bool, default: true)
+- `ignore_globs` (array[string], default: common cache/venv/node_modules ignores)
+
+Paths and separators:
+- `prefer_forward_slashes` (bool, default: true)
+- `expand_tilde` (bool, default: true)
+- `windows_enable_drive_prefix` (bool, default: true)
+- `windows_enable_unc` (bool, default: true)
+
+Performance / cache:
+- `cache_ttl_ms` (int, default: 500)
+- `cache_max_dirs` (int, default: 64)
+- `stat_strategy` ("none" | "lazy" | "eager", default: "lazy")
+
+## When do completions appear?
+
+Pathy uses two gates:
+
+1) Smart context gating: completions appear inside strings for common path
+   contexts like `open("...")`, `Path("...")`, and `pandas.read_csv("...")`.
+2) Prefix fallback: if the user types a clear path prefix (`./`, `../`, `/`, `~`,
+   or Windows drive/UNC), completions are allowed anywhere inside a string.
+
+If neither gate matches, completions stay quiet to avoid noise.
+
+## Local Testing (Phase 3)
 
 Build and run the server:
 
@@ -61,29 +138,18 @@ Install as a dev extension in Zed:
 2. Choose Install Dev Extension.
 3. Select this repo root (the folder containing `extension.toml`).
 
-Add the sidecar server as a secondary Python language server (keep your
-primary server first):
-
-```json
-{
-  "languages": {
-    "Python": {
-      "language_servers": [
-        "pyright",
-        "pathy",
-        "..."
-      ]
-    }
-  }
-}
-```
-
 Minimal Python snippet to test:
 
 ```python
+from pathlib import Path
+import pandas as pd
+
 open("./")
-open("../")
-open("~/")
+Path("./")
+pd.read_csv("./")
+
+print("hello")
+print("./" )  # prefix fallback should still work
 ```
 
 Notes:
@@ -100,9 +166,18 @@ Notes:
 - If the server won’t launch, confirm it was built and is executable.
 - If the WASM build fails, install the `wasm32-wasip1` target and retry.
 
-### Acceptance checklist
+### Acceptance checklist (Phase 3)
 
-- [ ] Completions appear inside Python string literals for path-ish prefixes.
+- [ ] Completions appear in `open("...")`, `Path("...")`, and `read_csv("...")`.
+- [ ] Completions do not appear in unrelated strings (e.g., `print("hello")`).
+- [ ] Prefix fallback works anywhere inside a string with `./` or `../`.
 - [ ] Selecting a completion replaces only the current path segment.
 - [ ] Primary Python LSP features (e.g. go-to-definition) still work.
 - [ ] No crash when the directory doesn’t exist.
+
+## Known limitations
+
+- Triple-quoted strings are only handled when the opening delimiter is on the
+  same line as the cursor.
+- F-strings are ignored when the cursor is inside `{...}` expressions.
+- The server does not parse Python ASTs; gating is heuristic by design.

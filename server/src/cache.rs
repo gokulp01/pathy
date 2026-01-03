@@ -57,4 +57,12 @@ impl DirCache {
             self.entries.pop_back();
         }
     }
+
+    pub fn update_limits(&mut self, ttl: Duration, max_entries: usize) {
+        self.ttl = ttl;
+        self.max_entries = max_entries;
+        while self.entries.len() > self.max_entries {
+            self.entries.pop_back();
+        }
+    }
 }
