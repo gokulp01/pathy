@@ -70,21 +70,21 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY'
-import os
-import pathlib
-import shutil
+          import os
+          import pathlib
+          import shutil
 
-version = os.environ["VERSION"]
-name = f"pathy-server_{version}_{os.environ['ARCHIVE_OS']}_{os.environ['ARCHIVE_ARCH']}{os.environ['EXT']}"
-out_dir = pathlib.Path("dist")
-out_dir.mkdir(parents=True, exist_ok=True)
+          version = os.environ["VERSION"]
+          name = f"pathy-server_{version}_{os.environ['ARCHIVE_OS']}_{os.environ['ARCHIVE_ARCH']}{os.environ['EXT']}"
+          out_dir = pathlib.Path("dist")
+          out_dir.mkdir(parents=True, exist_ok=True)
 
-bin_path = pathlib.Path(f"server/target/{os.environ['TARGET']}/release/pathy-server")
-if os.environ["EXT"]:
-    bin_path = bin_path.with_suffix(os.environ["EXT"])
+          bin_path = pathlib.Path(f"server/target/{os.environ['TARGET']}/release/pathy-server")
+          if os.environ["EXT"]:
+              bin_path = bin_path.with_suffix(os.environ["EXT"])
 
-shutil.copy2(bin_path, out_dir / name)
-PY
+          shutil.copy2(bin_path, out_dir / name)
+          PY
 
       - name: Checksums
         shell: bash
