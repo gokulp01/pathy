@@ -21,22 +21,22 @@ jobs:
             target: x86_64-apple-darwin
             archive_os: macos
             archive_arch: x86_64
-            ext: tar.gz
+            ext: ""
           - os: macos-14
             target: aarch64-apple-darwin
             archive_os: macos
             archive_arch: aarch64
-            ext: tar.gz
+            ext: ""
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             archive_os: linux
             archive_arch: x86_64
-            ext: tar.gz
+            ext: ""
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             archive_os: windows
             archive_arch: x86_64
-            ext: zip
+            ext: ".exe"
 
     steps:
       - uses: actions/checkout@v4
@@ -72,39 +72,18 @@ jobs:
           python - <<'PY'
 import os
 import pathlib
-import tarfile
-import zipfile
+import shutil
 
 version = os.environ["VERSION"]
-name = f"pathy-server_{version}_{os.environ['ARCHIVE_OS']}_{os.environ['ARCHIVE_ARCH']}"
+name = f"pathy-server_{version}_{os.environ['ARCHIVE_OS']}_{os.environ['ARCHIVE_ARCH']}{os.environ['EXT']}"
 out_dir = pathlib.Path("dist")
 out_dir.mkdir(parents=True, exist_ok=True)
 
 bin_path = pathlib.Path(f"server/target/{os.environ['TARGET']}/release/pathy-server")
-if os.environ["EXT"] == "zip":
-    bin_path = bin_path.with_suffix(".exe")
-    arc_name = "pathy-server.exe"
-    zip_path = out_dir / f"{name}.zip"
-    data = bin_path.read_bytes()
-    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        info = zipfile.ZipInfo(arc_name)
-        info.date_time = (1980, 1, 1, 0, 0, 0)
-        info.external_attr = 0o755 << 16
-        zf.writestr(info, data)
-else:
-    arc_name = "pathy-server"
-    tar_path = out_dir / f"{name}.tar.gz"
-    with tarfile.open(tar_path, "w:gz") as tf:
-        tarinfo = tarfile.TarInfo(arc_name)
-        tarinfo.size = bin_path.stat().st_size
-        tarinfo.mtime = 0
-        tarinfo.uid = 0
-        tarinfo.gid = 0
-        tarinfo.uname = ""
-        tarinfo.gname = ""
-        tarinfo.mode = 0o755
-        with bin_path.open("rb") as f:
-            tf.addfile(tarinfo, f)
+if os.environ["EXT"]:
+    bin_path = bin_path.with_suffix(os.environ["EXT"])
+
+shutil.copy2(bin_path, out_dir / name)
 PY
 
       - name: Checksums

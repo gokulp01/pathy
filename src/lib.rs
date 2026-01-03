@@ -5,7 +5,7 @@ use zed::settings::LspSettings;
 use zed::{download_file, make_file_executable, serde_json, Command, DownloadedFileType};
 
 const LANGUAGE_SERVER_ID: &str = "pathy";
-const DEFAULT_REPO: &str = "placeholder/zed-pathy";
+const DEFAULT_REPO: &str = "gokulp01/pathy";
 const CACHE_ROOT_DIR: &str = "cache";
 
 #[derive(Debug, Clone)]
@@ -83,8 +83,8 @@ impl zed::Extension for PathyExtension {
             )
         });
 
-        let (asset_name, archive_type) = asset_name_for(&version, &platform)?;
-        let archive_path = cache_root.join(format!("{asset_name}"));
+        let asset_name = asset_name_for(&version, &platform)?;
+        let asset_path = cache_root.join(&asset_name);
         let checksum_url = format!("{base_url}/checksums-{version}.txt");
         let checksum_path = cache_root.join(format!("checksums-{version}.txt"));
 
@@ -102,33 +102,28 @@ impl zed::Extension for PathyExtension {
         let expected = parse_checksum(&checksums, &asset_name)
             .ok_or_else(|| "checksum missing for asset".to_string())?;
 
-        let archive_path_str = archive_path.to_string_lossy().to_string();
+        let asset_path_str = asset_path.to_string_lossy().to_string();
         download_file(
             &format!("{base_url}/{asset_name}"),
-            &archive_path_str,
+            &asset_path_str,
             DownloadedFileType::Uncompressed,
         )
         .map_err(|err| format!("asset download failed: {err}"))?;
 
         if config.verify_checksum {
-            let digest = sha256_hex(&archive_path)?;
+            let digest = sha256_hex(&asset_path)?;
             if digest != expected {
-                std::fs::remove_file(&archive_path).ok();
+                std::fs::remove_file(&asset_path).ok();
                 return Err("checksum verification failed".to_string());
             }
         }
 
-        extract_archive(&archive_path, &cache_root, &platform, archive_type)?;
-
         let extracted = extracted_binary_path(&cache_root, &platform);
-        if !extracted.exists() {
-            return Err("expected extracted binary missing".to_string());
-        }
+        std::fs::rename(&asset_path, &extracted).map_err(|err| err.to_string())?;
 
         if !is_windows() {
             let extracted_str = extracted.to_string_lossy().to_string();
-            make_file_executable(&extracted_str)
-                .map_err(|err| format!("chmod failed: {err}"))?;
+            make_file_executable(&extracted_str).map_err(|err| format!("chmod failed: {err}"))?;
         }
 
         let final_path = cache_path;
@@ -213,28 +208,19 @@ fn current_platform() -> zed::Result<PlatformInfo> {
     })
 }
 
-fn asset_name_for(
-    version: &str,
-    platform: &PlatformInfo,
-) -> zed::Result<(String, DownloadedFileType)> {
+fn asset_name_for(version: &str, platform: &PlatformInfo) -> zed::Result<String> {
     if platform.arch != "x86_64" && platform.arch != "aarch64" {
         return Err("unsupported architecture".to_string());
     }
-    let archive = match platform.os.as_str() {
-        "windows" => "zip",
-        "macos" | "linux" => "tar.gz",
+    let ext = match platform.os.as_str() {
+        "windows" => ".exe",
+        "macos" | "linux" => "",
         _ => return Err("unsupported platform".to_string()),
     };
-    let filename = format!(
-        "pathy-server_{version}_{}_{}.{archive}",
+    Ok(format!(
+        "pathy-server_{version}_{}_{}{ext}",
         platform.os, platform.arch
-    );
-    let file_type = match archive {
-        "zip" => DownloadedFileType::Zip,
-        "tar.gz" => DownloadedFileType::GzipTar,
-        _ => DownloadedFileType::Uncompressed,
-    };
-    Ok((filename, file_type))
+    ))
 }
 
 fn cached_binary_path(cache_root: &Path, version: &str, platform: &PlatformInfo) -> PathBuf {
@@ -298,81 +284,6 @@ fn read_to_string(path: &Path) -> zed::Result<String> {
     std::fs::read_to_string(path).map_err(|err| err.to_string())
 }
 
-fn extract_archive(
-    archive_path: &Path,
-    cache_root: &Path,
-    platform: &PlatformInfo,
-    archive_type: DownloadedFileType,
-) -> zed::Result<()> {
-    match archive_type {
-        DownloadedFileType::GzipTar => extract_tar_gz(archive_path, cache_root, platform),
-        DownloadedFileType::Zip => extract_zip(archive_path, cache_root, platform),
-        _ => Err("unsupported archive type".to_string()),
-    }
-}
-
-fn extract_tar_gz(
-    archive_path: &Path,
-    cache_root: &Path,
-    platform: &PlatformInfo,
-) -> zed::Result<()> {
-    use flate2::read::GzDecoder;
-    use std::fs::File;
-    use tar::Archive;
-
-    let file = File::open(archive_path).map_err(|err| err.to_string())?;
-    let decoder = GzDecoder::new(file);
-    let mut archive = Archive::new(decoder);
-    let target_name = if platform.os == "windows" {
-        "pathy-server.exe"
-    } else {
-        "pathy-server"
-    };
-
-    for entry in archive.entries().map_err(|err| err.to_string())? {
-        let mut entry = entry.map_err(|err| err.to_string())?;
-        let path = entry.path().map_err(|err| err.to_string())?;
-        if path.file_name().and_then(|n| n.to_str()) == Some(target_name) {
-            let dest = extracted_binary_path(cache_root, platform);
-            ensure_dir(dest.parent().unwrap())?;
-            entry.unpack(&dest).map_err(|err| err.to_string())?;
-            return Ok(());
-        }
-    }
-
-    Err("binary not found in archive".to_string())
-}
-
-fn extract_zip(
-    archive_path: &Path,
-    cache_root: &Path,
-    platform: &PlatformInfo,
-) -> zed::Result<()> {
-    use std::fs::File;
-    use zip::ZipArchive;
-
-    let file = File::open(archive_path).map_err(|err| err.to_string())?;
-    let mut archive = ZipArchive::new(file).map_err(|err| err.to_string())?;
-    let target_name = if platform.os == "windows" {
-        "pathy-server.exe"
-    } else {
-        "pathy-server"
-    };
-
-    for i in 0..archive.len() {
-        let mut file = archive.by_index(i).map_err(|err| err.to_string())?;
-        if file.name().ends_with(target_name) {
-            let dest = extracted_binary_path(cache_root, platform);
-            ensure_dir(dest.parent().unwrap())?;
-            let mut out = std::fs::File::create(&dest).map_err(|err| err.to_string())?;
-            std::io::copy(&mut file, &mut out).map_err(|err| err.to_string())?;
-            return Ok(());
-        }
-    }
-
-    Err("binary not found in archive".to_string())
-}
-
 fn is_windows() -> bool {
     cfg!(windows)
 }
@@ -387,14 +298,14 @@ mod tests {
             os: "linux".into(),
             arch: "x86_64".into(),
         };
-        let (name, _ty) = asset_name_for("0.4.0", &platform).unwrap();
-        assert_eq!(name, "pathy-server_0.4.0_linux_x86_64.tar.gz");
+        let name = asset_name_for("0.4.0", &platform).unwrap();
+        assert_eq!(name, "pathy-server_0.4.0_linux_x86_64");
     }
 
     #[test]
     fn checksum_parsing() {
-        let data = "abcd1234  pathy-server_0.4.0_linux_x86_64.tar.gz\n";
-        let hash = parse_checksum(data, "pathy-server_0.4.0_linux_x86_64.tar.gz").unwrap();
+        let data = "abcd1234  pathy-server_0.4.0_linux_x86_64\n";
+        let hash = parse_checksum(data, "pathy-server_0.4.0_linux_x86_64").unwrap();
         assert_eq!(hash, "abcd1234");
     }
 

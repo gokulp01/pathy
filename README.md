@@ -167,8 +167,8 @@ If neither gate matches, completions stay quiet to avoid noise.
 ## Release artifacts (Phase 4)
 
 Asset naming scheme:
-- `pathy-server_<VERSION>_<OS>_<ARCH>.tar.gz` (macOS/Linux)
-- `pathy-server_<VERSION>_<OS>_<ARCH>.zip` (Windows)
+- `pathy-server_<VERSION>_<OS>_<ARCH>` (macOS/Linux)
+- `pathy-server_<VERSION>_<OS>_<ARCH>.exe` (Windows)
 - `checksums-<VERSION>.txt`
 
 Supported OS/arch values:
