@@ -1,506 +1,371 @@
-# AGENTS.md — Codex Working Agreement (Phase 3: “Editor-Quality” Path Intellisense)
+# AGENTS.md — Codex Working Agreement (Phase 4: Ship & Distribute)
 
-This repository contains:
-- A **Zed extension** (Rust → WASM) that launches a sidecar Language Server.
-- A **sidecar LSP server** (in `server/`) that provides **filesystem path completions inside Python string literals**.
+This repository is a **Zed extension** (Rust → WASM) that launches a **sidecar LSP server** (native binary) providing **filesystem path completions inside Python string literals**.
 
-Codex: treat this file as the source of truth for **Phase 3**. If a user prompt conflicts with this file, follow this file.
+Codex: treat this file as the source of truth for **Phase 4**. If any user prompt conflicts with this file, follow this file.
 
 ---
 
-## 0) Project North Star (do not drift)
+## 0) Phase 4 Objective (North Star)
 
-### What we are building
-We are building a **Zed-native, LSP-based Path Intellisense** experience for Python:
-- When the user types inside a Python string that represents a file path, they get completion suggestions from the filesystem.
-- The experience should feel “obvious and dependable”:
-  - works in the common cases without manual babysitting
-  - avoids noisy suggestions in non-path strings
-  - respects user preferences (base dir, ignore patterns, hidden files, separators, etc.)
-  - remains fast (no recursion, no full indexing)
+### What “Phase 4” means
+Phase 4 is about **shipping**:
+- Users should be able to install the extension and have the sidecar LSP server available **without** manually building it.
+- The extension must be able to **obtain the correct server binary for the user’s platform**, cache it, validate it, and run it.
+- The project should have a **repeatable, secure-ish release process** producing binaries for supported platforms.
 
-### Core constraints (non-negotiable)
-1) **No editor keypress hooks / no direct buffer edits**: only LSP completion.
-2) The sidecar server is **secondary** and must **not interfere** with primary Python LSP (pyright/basedpyright/ruff-lsp).
-3) The server must **advertise completion-only capability** (no hover/definition/rename/code actions).
-4) Phase 3 does **not** include distribution automation or binary downloads (that is Phase 4).
+### Core constraints (still non-negotiable)
+1) The sidecar remains **completion-only LSP** (no hover/definition/rename/etc).
+2) The sidecar remains **secondary** to the user’s primary Python LSP.
+3) No editor keystroke hooks; the feature remains delivered via **LSP completion**.
+4) **Do not commit binaries** into git. Binaries are distributed via Releases.
+5) Supply-chain safety: downloads must be **pinned to our release artifacts**, validated by checksum, and executed only after verification.
 
 ---
 
-## 1) Phase 3 Scope (THIS PHASE ONLY)
+## 1) Scope: What Phase 4 MUST Deliver
 
-### Phase 3 goal
-Upgrade the Phase 2 MVP into an “editor-quality” feature by adding:
+### 1.1 Release automation (GitHub Actions)
+- A CI workflow that runs on PRs:
+  - format/lint/tests for server (and extension build sanity checks if applicable)
+- A release workflow that:
+  - builds server binaries for a platform matrix
+  - packages them into consistent archives (tar.gz / zip)
+  - produces checksums (sha256)
+  - uploads artifacts to a GitHub Release (tag-driven or workflow-dispatch)
 
-A) **Context awareness (“smart gating”)**
-- Only show filesystem path completions when the string is likely a filepath:
-  - common path-taking functions and constructors (e.g., `open(...)`, `Path(...)`, `read_*` APIs)
-  - common library calls (e.g., pandas `read_csv`, `read_parquet`, etc.)
-- Still allow a fallback: if the user types a clearly path-like prefix (`./`, `../`, `/`, `~`, drive/UNC), show completions anywhere in a string.
+### 1.2 Extension runtime binary acquisition (auto-download + cache)
+The extension must:
+- detect the host platform/arch
+- determine which release asset matches
+- download a small manifest (or checksums file) and the asset
+- verify sha256 checksum
+- unpack to a cache directory
+- mark executable when needed
+- launch server using `process:exec`
 
-B) **User configuration support**
-Expose settings that users can set via Zed’s LSP settings mechanism (Phase 2 already had a basic setup; Phase 3 makes it complete, documented, and stable):
-- base directory strategy
-- ignore patterns
-- show hidden files
-- max results
-- separator behavior (prefer `/` vs OS-native)
-- directory insertion behavior (trailing slash)
-- trigger behavior
+### 1.3 Configuration & fallbacks
+Users must be able to:
+- disable auto-download and provide their own server path
+- override server path for development (local build)
+- optionally override release channel (stable vs prerelease) if we support it
+- inspect/clear cache via documented manual steps (we can’t add arbitrary UI actions in Zed extensions)
 
-C) **Robustness and cross-platform correctness**
-- Better string literal detection (without needing a full Python parser in Phase 3)
-- More complete Windows prefix handling (drive letters, UNC paths), while keeping portable defaults
-- Better path segment extraction and replacement ranges
-- Better behavior in unsaved files and multi-root workspaces
+### 1.4 Documentation
+README must include:
+- install as dev extension + published extension notes
+- required capabilities and how to grant them
+- configuration reference for Phase 4 settings
+- troubleshooting for download failures, checksum failures, proxy/SSL issues
+- release process for maintainers (tagging, workflows, versioning)
 
-D) **Performance and reliability improvements**
-- More resilient caching (bounded, TTL, safe invalidation)
-- Avoid expensive I/O and huge directory listings
-- Deterministic sorting and filtering
-
-E) **Testing + docs**
-- Expand unit tests to cover config parsing, context gating, Windows cases, and segment extraction.
-- Improve README with:
-  - configuration reference
-  - “why/when completions appear”
-  - troubleshooting
-  - known limitations (clearly)
-
-### Phase 3 non-goals (hard stops)
-Do NOT implement yet:
-- Downloading server binaries / GitHub Releases / CI distribution
-- Recursive indexing / background crawling
-- `.gitignore` parsing (optional future; not required in Phase 3)
-- Full Python AST parsing via heavy frameworks unless absolutely necessary
-- Snippet/tabstop insertion (plain completion is fine)
-- UI panes, trees, or non-standard Zed UI integrations
-- Any LSP features beyond completion
+### 1.5 Publishing readiness
+- Ensure licensing and metadata remain valid for Zed registry submission.
+- Document the steps to publish to the Zed extension registry (PR to zed-industries/extensions).
 
 ---
 
-## 2) Definition of Done (Phase 3)
+## 2) Non-Goals (Hard Stops)
 
-Phase 3 is “done” when all items are true:
-
-### Functionality
-- ✅ Path completions appear in Python strings in “obvious path contexts” without requiring explicit prefixes.
-- ✅ Path completions still appear anywhere if the user types a clearly path-like prefix.
-- ✅ Completions are not annoyingly noisy in arbitrary non-path strings.
-
-### Configuration
-- ✅ Documented user settings work (Zed settings → server config).
-- ✅ Changing config (restart or configuration change) produces expected behavior.
-- ✅ Default settings are sensible and safe.
-
-### Correctness
-- ✅ Correct replacement range: only the current path segment is replaced.
-- ✅ Reasonable handling of:
-  - `./`, `../`, `/`, `~`
-  - Windows drive prefixes (e.g., `C:\`) and UNC (e.g., `\\server\share`)
-- ✅ No recursion; listing is bounded; server remains responsive.
-
-### Integration
-- ✅ Sidecar remains completion-only; does not interfere with “go to definition” and other features from primary Python LSP.
-- ✅ Zed extension still launches server reliably with minimal capabilities (no downloads).
-
-### Quality
-- ✅ Expanded unit tests pass.
-- ✅ README updated with:
-  - configuration reference
-  - examples
-  - troubleshooting
-  - limitations
-- ✅ Git hygiene: no `target/` artifacts committed; `.gitignore` remains correct.
+Do NOT do these in Phase 4:
+- Implement new feature functionality (that was Phase 2/3)
+- Add LSP capabilities beyond completion
+- Add a recursive indexer or file watcher
+- Add telemetry / analytics
+- Add a custom UI panel in Zed (not supported by the current extension surface)
+- Add network calls unrelated to downloading our official release assets
+- Add automatic self-update beyond “download latest version matching this extension version”
 
 ---
 
-## 3) Expected Repo Layout (Phase 3)
+## 3) Definition of Done (Phase 4)
 
-Root:
-- `extension.toml`
-- `Cargo.toml`, `src/lib.rs`
-- `.gitignore`
-- `README.md`, `LICENSE`, `AGENTS.md`
+Phase 4 is complete when:
 
-Server:
-- `server/Cargo.toml`, `server/src/...`
-- `server` modules may be split (e.g., `completion`, `config`, `context`, `cache`, `paths`) as long as it stays small and readable.
+### Release pipeline
+- ✅ CI runs on PRs and passes
+- ✅ Release workflow produces archives + sha256 checksums for each supported platform
+- ✅ Release workflow uploads them to a GitHub Release
+- ✅ Asset naming is stable and documented
 
-No build output directories committed.
+### Extension behavior
+- ✅ Fresh install on a supported platform:
+  - downloads correct binary
+  - verifies checksum
+  - unpacks and caches
+  - launches server
+  - path completions work
+- ✅ If download is disabled or fails:
+  - extension falls back to a user-provided `server_path` (if configured)
+  - otherwise produces a clear error message and docs point to fixes
+- ✅ The extension never executes an unverified download
+- ✅ Cache logic is deterministic and does not grow unbounded
 
----
+### Docs & configuration
+- ✅ README includes Phase 4 config + capabilities + troubleshooting
+- ✅ Settings examples are copy/paste correct
+- ✅ Known limitations are clearly documented
 
-## 4) Codex Working Rules (apply always)
-
-### 4.1 Start with a plan
-Before editing files, Codex must:
-1) Summarize the task
-2) List files to change/create
-3) Outline steps in the order they will be implemented
-4) State assumptions and confirm constraints (completion-only, no Phase 4 features)
-
-### 4.2 Keep diffs small and focused
-- Prefer incremental PR-sized changes even within Phase 3.
-- Avoid refactors unrelated to gating/config/correctness.
-- Do not churn formatting in unrelated files.
-
-### 4.3 No surprise dependencies
-- Do not add new crates unless needed.
-- If adding a crate:
-  - justify why it is necessary
-  - prefer lightweight, widely-used crates
-  - avoid heavy parsing frameworks unless absolutely needed
-
-### 4.4 Always validate
-- Run formatting and tests.
-- If something fails, report precisely why and propose minimal fixes.
-
-### 4.5 No secrets / no credentials
-- Never request or embed tokens.
-- No network calls required for Phase 3.
+### Git hygiene
+- ✅ No release binaries committed to the repo
+- ✅ `.gitignore` covers any new build/dist folders
 
 ---
 
-## 5) Configuration Contract (Phase 3)
+## 4) Supported Platforms (Phase 4)
 
-### 5.1 Where config comes from
-The server must be configurable via Zed’s LSP settings mechanism.
-Implementation MUST support at least one of:
-- `workspace/didChangeConfiguration` (preferred)
-- `workspace/configuration` request (if client uses it)
-- `initialize.initializationOptions` (fallback)
+Phase 4 MUST explicitly define and document supported platforms.
 
-Codex must implement a robust approach:
-- On initialize: set defaults
-- Then attempt to read user settings if provided
-- Support updates (if Zed sends configuration changes)
+Minimum recommended set:
+- macOS: x86_64 + arm64
+- Linux: x86_64 (arm64 optional but nice)
+- Windows: x86_64
 
-### 5.2 Config schema (MUST document in README)
-Define settings with stable names and defaults. Recommended keys (you may adjust names, but keep them stable once chosen):
-
-#### Behavior / gating
-- `enable`: bool (default: true)
-- `path_prefix_fallback`: bool (default: true)
-- `context_gating`: enum (default: "smart")
-  - "off": always show completions in any string when manual trigger occurs
-  - "smart": show in known contexts + prefix fallback
-  - "strict": only known contexts, no fallback (only if user opts in)
-
-#### Base directory
-- `base_dir`: enum (default: "file_dir")
-  - "file_dir": directory of the current file
-  - "workspace_root": worktree root
-  - "both": offer both (implementation: merge lists or prefer one)
-- `workspace_root_strategy`: enum (default: "lsp_root_uri")
-  - "lsp_root_uri": use initialize rootUri
-  - "file_parent_chain": walk up from file until repo markers (optional, Phase 3 can skip)
-  - "disabled": never use workspace root
-
-#### Listing and filtering
-- `max_results`: int (default: 80)
-- `show_hidden`: bool (default: false)
-- `include_files`: bool (default: true)
-- `include_directories`: bool (default: true)
-- `directory_trailing_slash`: bool (default: true)
-- `ignore_globs`: array[string] (default: common ignores below)
-  - Suggested defaults:
-    - "**/.git/**"
-    - "**/.venv/**"
-    - "**/venv/**"
-    - "**/__pycache__/**"
-    - "**/.pytest_cache/**"
-    - "**/.mypy_cache/**"
-    - "**/.ruff_cache/**"
-    - "**/node_modules/**"
-
-#### Paths and separators
-- `prefer_forward_slashes`: bool (default: true)
-- `expand_tilde`: bool (default: true)
-- `windows_enable_drive_prefix`: bool (default: true)
-- `windows_enable_unc`: bool (default: true)
-
-#### Performance / cache
-- `cache_ttl_ms`: int (default: 500)
-- `cache_max_dirs`: int (default: 64)
-- `stat_strategy`: enum (default: "lazy")
-  - "none": don’t stat; treat unknown as file
-  - "lazy": stat only needed entries (recommended)
-  - "eager": stat all (avoid unless necessary)
-
-### 5.3 Backwards compatibility
-- If Phase 2 already documented certain keys, keep them working.
-- Unknown keys must be ignored without crashing.
-- Invalid values must fall back to defaults with a logged warning (stderr).
+Rules:
+- If we do not support a platform, the extension must detect it and produce a clear error (“unsupported platform”) with remediation (build from source).
 
 ---
 
-## 6) Completion Behavior Spec (Phase 3)
+## 5) Versioning & Release Strategy (must be consistent)
 
-### 6.1 High-level algorithm (must remain deterministic)
-On `textDocument/completion`:
-1) Load document text for the URI (must exist; otherwise return none).
-2) Determine if the cursor is inside a Python string literal (heuristic).
-3) Extract:
-   - the string content around cursor
-   - the “current path segment” and its replacement range
-4) Decide if completion should be offered:
-   - If prefix fallback matches: offer
-   - Else if context gating matches known call-sites: offer
-   - Else: return none
-5) Resolve base directory:
-   - according to `base_dir` setting and the detected prefix type
-6) List directory entries (bounded, cached)
-7) Filter by typed prefix in the segment
-8) Convert to LSP completion items
-9) Return results (bounded)
+### 5.1 Single source of truth for version
+- Extension version in `extension.toml` is the canonical version.
+- Server version should match extension version.
+- Release tag MUST match that version (e.g., `v0.4.0` for version `0.4.0`).
 
-### 6.2 String literal detection (Phase 3 target)
-Phase 2 was line-based and limited. Phase 3 should improve while staying lightweight:
+### 5.2 Release artifacts tied to version
+- Extension must download binaries for **its own version**, not “latest”.
+- This prevents silent behavior changes and makes debugging reproducible.
 
-Minimum improvements:
-- handle escaped quotes on the same line
-- handle raw strings heuristically (`r"..."`, `r'...'`) for escaping decisions
-- handle f-strings heuristically:
-  - completions should apply only in literal portions (not inside `{...}`) in Phase 3 if feasible
-- triple quotes are optional but recommended if not too hard:
-  - simplest acceptable approach: if the cursor is within a triple-quoted string on the same line as opening delimiter, treat as string; otherwise document limitation
-
-Be honest in README about what is and isn’t supported.
-
-### 6.3 Context gating rules (“smart” mode)
-Context gating is a filter: only show completions in likely-path argument strings.
-
-Implement a pragmatic approach:
-- Identify the immediate call expression / function name near the cursor
-- If the cursor is inside the first positional arg or a named arg known to be a path, allow completions
-
-Phase 3 must include at least these canonical contexts:
-- Builtins / stdlib:
-  - `open(...)`
-  - `Path(...)` (from `pathlib`)
-  - `os.path.*` functions that take paths (optional)
-- Common patterns:
-  - `with open("...") as f:`
-  - `Path("...") / "child"` (if cursor is in the string literal)
-- Common libraries (minimal list; configurable in the future):
-  - `pandas.read_csv`, `read_parquet`, `read_json`, `read_excel` (best-effort)
-
-Additionally:
-- Always allow when string prefix is path-like (fallback).
-
-### 6.4 Path-like prefix fallback (must remain)
-Regardless of context gating, if the prefix before cursor matches:
-- `./`, `../`, `/`, `~`
-- Windows:
-  - drive letter + `:\` or `:/`
-  - UNC `\\server\share\`
-then completions are allowed.
-
-### 6.5 Segment extraction and replacement range (Phase 3 target)
-- Replacement should start at the beginning of the current path segment inside the string.
-- It must not overwrite:
-  - the opening quote
-  - earlier parts of the string not part of the segment
-- It must not insert outside the string.
-
-Define clear segment boundaries:
-- Segment begins after the last path separator (`/` or `\`) in the string content before cursor
-- Segment ends at cursor (Phase 3 can ignore selection/range expansions)
-
-### 6.6 Insert behavior
-- Directory entries:
-  - insert trailing `/` (configurable)
-- Preserve prefix style:
-  - If user typed `../`, keep it
-  - If user typed `~`, expand or not based on config:
-    - If `expand_tilde` is false, preserve `~` and resolve internally only for listing
-- Separator policy:
-  - If `prefer_forward_slashes` true: insert `/` even on Windows unless user is clearly typing `\` paths and config says otherwise
-  - Must be deterministic and documented
-
-### 6.7 Completion triggering
-- Server may provide `triggerCharacters` (e.g., `/`, `\`, `.`) but must not rely on them.
-- Manual invocation (Ctrl-Space / Show Completions) must always work.
+### 5.3 Changelog
+- Add/maintain a `CHANGELOG.md` or a release-notes section in README.
+- Keep it short but accurate.
 
 ---
 
-## 7) Windows & Cross-Platform Support (Phase 3)
+## 6) Release Artifact Naming (critical: must be deterministic)
 
-Minimum Phase 3 expectations:
-- Recognize drive prefixes:
-  - `C:\` and `C:/`
-- Recognize UNC prefixes when enabled:
-  - `\\server\share\`
-- Avoid generating broken Python escape sequences:
-  - If inserting backslashes into non-raw strings, escape them or prefer forward slashes.
-Recommended default:
-- insert forward slashes for portability unless config requests OS-native.
+Define a naming scheme and never change it casually.
 
-Document Windows notes in README:
-- how to type raw strings if they want backslashes
-- how the server inserts separators by default
+Example scheme (illustrative; choose one and commit to it):
+- Asset archive name:
+  - `pathy-server_<VERSION>_<OS>_<ARCH>.tar.gz` for macOS/Linux
+  - `pathy-server_<VERSION>_<OS>_<ARCH>.zip` for Windows
+- Inside archive:
+  - `pathy-server` (unix) or `pathy-server.exe` (windows)
+- Checksums file:
+  - `checksums-<VERSION>.txt` containing `sha256  filename`
 
----
-
-## 8) Performance & Reliability Requirements (Phase 3)
-
-### 8.1 No recursion, no indexing
-- List only one directory level per completion request.
-- Never walk the entire workspace.
-
-### 8.2 Cache behavior
-- Cache directory listings with TTL and max size.
-- Must be bounded and safe:
-  - no unbounded memory growth
-  - eviction policy (LRU or simple FIFO) is fine
-
-### 8.3 Safety caps
-- Always cap results.
-- If a directory listing is huge, stop early.
-- Avoid blocking for long:
-  - If listing is slow, return partial results rather than hanging.
-
-### 8.4 Error handling
-- Missing directory → return empty list, not error
-- Permission denied → return empty list, log once
-- Broken symlink / IO error → skip entry and continue
+Rules:
+- Filenames must be ASCII, no spaces.
+- OS strings should be one of: `macos`, `linux`, `windows`.
+- ARCH strings should be one of: `x86_64`, `aarch64`.
+- Document mapping logic in README.
 
 ---
 
-## 9) Logging & Observability (Phase 3)
+## 7) Supply-Chain Safety Requirements (Phase 4 minimum bar)
 
-- Log only to stderr.
-- Provide a debug mode (env var or flag) to increase verbosity.
-- Never spam logs on every keystroke unless debug mode is enabled.
-- Include one-line summaries for:
-  - config loaded (once)
-  - cache hits/misses (debug only)
-  - why completion was gated off (debug only)
+We are not building a full secure update framework, but we must do the basics:
 
----
+### 7.1 Download scope restriction
+- Downloads must come only from our official GitHub Releases location.
+- Do not download from arbitrary URLs.
+- If a `base_url` override is supported, it must be clearly marked “advanced” and default to official repo.
 
-## 10) Testing Requirements (Phase 3)
+### 7.2 Verify checksums
+- Always verify sha256 checksum before unpacking/executing.
+- If checksum mismatch:
+  - delete the downloaded file
+  - do NOT execute
+  - surface clear error + troubleshooting hint
 
-### 10.1 Unit tests (must expand)
-Add tests for:
-- config parsing and defaulting
-- context gating decisions (open/Path/read_csv examples)
-- prefix fallback decisions
-- Windows prefix parsing (if implemented)
-- segment extraction boundaries and replacement ranges
-- ignore patterns filtering (at least basic)
+### 7.3 Avoid shell injection
+- Never construct shell commands by concatenating untrusted strings.
+- When executing processes, pass args as structured arguments.
 
-Tests must run via:
-- `cargo test` in `server/`
-
-### 10.2 Deterministic filesystem tests
-Where filesystem is required:
-- use temp directories created during tests
-- create small synthetic trees
-- avoid relying on developer machine contents
-
-### 10.3 Manual test checklist (must update README)
-Provide a Phase 3 checklist:
-- examples where completions SHOULD appear (open, Path, pandas)
-- examples where completions SHOULD NOT appear (random string)
-- examples of prefix fallback (any string with `./`)
-- Windows-specific (if available)
+### 7.4 Cache directory permissions
+- Ensure the downloaded binary is stored in a directory writable by the user.
+- Ensure executable bit is set on unix after extraction if needed.
 
 ---
 
-## 11) Documentation Requirements (Phase 3)
+## 8) Extension Download/Cache Design (must be explicit)
+
+### 8.1 Cache location
+- Choose a cache directory that is stable across runs.
+- If Zed’s extension API provides a per-extension storage dir, use it.
+- Otherwise use a safe OS-appropriate cache directory inside the user profile (document where it is).
+- Cache directory structure must include version so multiple versions can coexist:
+  - `<cache_root>/pathy/<version>/<platform>/pathy-server[.exe]`
+
+### 8.2 Cache policy
+- If binary exists and checksum is known-good → reuse it.
+- If binary missing or checksum unknown → download and verify.
+- Never re-download on every startup unless explicitly requested.
+
+### 8.3 Offline mode
+- If user is offline:
+  - use cached binary if present
+  - otherwise produce clear error and suggest manual server_path configuration
+
+---
+
+## 9) Configuration Requirements (Phase 4)
+
+The server already has behavior settings (Phase 3). Phase 4 adds extension-level settings:
+
+### 9.1 Extension settings (new)
+Document these under a stable key (e.g., `lsp.pathy.settings` for server settings and `extensions.pathy` or similar for extension settings—use whichever mechanism the repo currently uses; do not invent unsupported config plumbing).
+
+Required settings:
+- `auto_download`: bool (default true)
+- `server_path`: string | null (default null)
+  - if set, use this binary and skip downloading
+- `release_channel`: enum (default "stable")
+  - stable only is acceptable; prerelease optional
+- `base_url`: string | null (default null, advanced)
+  - default uses official GitHub Releases
+- `verify_checksum`: bool (default true; must remain true by default)
+- `cache_dir`: string | null (default null; advanced)
+  - if null, use default cache location
+
+### 9.2 Precedence rules (must document)
+When launching server:
+1) If `server_path` is set and exists → use it
+2) Else if `auto_download` true → download+cache+use
+3) Else → fail with actionable error
+
+---
+
+## 10) GitHub Actions Requirements (Phase 4)
+
+### 10.1 CI workflow (PR)
+Must run:
+- server: `cargo fmt` (check) + `cargo test`
+- server: `cargo build --release` at least on one platform (or matrix if cheap)
+- optionally: extension crate builds (sanity check) if feasible
+
+Keep CI fast and reliable.
+
+### 10.2 Release workflow
+- Triggered by:
+  - push tags matching `v*` OR manual workflow dispatch with version input
+- Builds server binaries for the platform matrix.
+- Packages archives with stable naming.
+- Produces checksums.
+- Creates or updates GitHub Release for that tag.
+- Uploads:
+  - all archives
+  - checksums file(s)
+
+Important:
+- Do NOT require secrets beyond `GITHUB_TOKEN`.
+- Avoid third-party actions that introduce risk unless widely used and necessary.
+
+---
+
+## 11) Testing Requirements (Phase 4)
+
+### 11.1 Automated tests
+- Unit tests for platform mapping, URL building, checksum parsing.
+- Tests for cache path computation (pure functions).
+
+### 11.2 Manual smoke tests (documented)
+For each supported OS:
+1) remove cache directory
+2) install dev extension
+3) grant required capabilities
+4) open python file and verify completions
+5) verify that binary was downloaded into cache
+6) verify logs show “downloaded/verified/using cached” states
+
+Provide exact steps in README.
+
+### 11.3 Failure mode tests (manual)
+Document how to simulate:
+- checksum mismatch (e.g., corrupt download)
+- missing network
+- unsupported platform
+and what the expected error looks like.
+
+---
+
+## 12) Documentation Requirements (Phase 4)
 
 README must include:
-1) What the extension does (short)
-2) How to install as dev extension (unchanged)
-3) How to build the server (unchanged)
-4) Configuration reference:
-   - every setting, meaning, default
-   - example `settings.json` snippet showing `lsp.<server_id>.settings`
-5) “When do completions appear?” explanation:
-   - smart gating + prefix fallback
-6) Troubleshooting:
-   - logs
-   - capability grants
-   - server ordering
-7) Known limitations:
-   - be explicit (triple quotes, f-strings, etc.)
+
+### 12.1 User docs
+- Installation (dev + registry)
+- Required capabilities:
+  - `process:exec` (to run server)
+  - `download_file` (to download server)
+  - How to grant them in Zed settings
+- Configuration reference for:
+  - server settings (Phase 3)
+  - extension settings (Phase 4)
+- Troubleshooting:
+  - “download failed”
+  - “checksum failed”
+  - “server won’t launch”
+  - “no completions”
+  - proxy/SSL hints (generic)
+
+### 12.2 Maintainer docs
+- How to cut a release:
+  1) bump versions
+  2) update changelog
+  3) tag `vX.Y.Z`
+  4) verify release artifacts
+- How to publish to Zed registry (PR to zed-industries/extensions)
 
 ---
 
-## 12) Git Hygiene (mandatory)
+## 13) Dependency & Code Rules (Phase 4)
 
-- `.gitignore` must ignore:
-  - `/target/`
-  - `/server/target/`
-- Do not commit build artifacts.
-- Keep commits focused and readable:
-  - ideally one Phase 3 commit: `phase 3: context-aware + configurable path completions`
-  - checkpoint commits allowed, but avoid noise
+### 13.1 Dependencies
+- Keep new dependencies minimal.
+- If checksum verification requires a crate, choose a small, well-known one.
+- Prefer standard library when feasible.
 
----
-
-## 13) Security & Safety (Phase 3)
-
-- No network calls.
-- No downloading.
-- No executing arbitrary commands beyond what the extension already needs to launch the local server.
-- Do not broaden extension capabilities beyond what is already necessary.
-- Never read outside the workspace unless the user explicitly types an absolute path (and config allows it).
+### 13.2 No new runtime services
+- No background daemons.
+- No telemetry.
 
 ---
 
-## 14) Codex Process Checklist (what you must do each run)
+## 14) Git Hygiene (mandatory)
+
+- Do not commit `dist/`, archives, or binaries.
+- Ensure `.gitignore` covers:
+  - `/dist/`, `/release/`, or any packaging output folder created by workflows/scripts
+- Keep commits clean and focused.
+Recommended commit message:
+- `phase 4: release pipeline + auto-download server binaries`
+
+---
+
+## 15) Codex Process Checklist (must follow each run)
 
 Before edits:
 - [ ] Summarize plan
 - [ ] List files to touch
-- [ ] Confirm no Phase 4 features
-- [ ] Confirm completion-only advertising remains
+- [ ] Confirm no feature changes / no LSP capability expansion
+- [ ] Confirm artifacts naming scheme
 
 During edits:
-- [ ] Keep diffs minimal
-- [ ] Add tests for new logic
-- [ ] Update README if behavior/config changes
+- [ ] Implement smallest viable pieces first:
+  1) release workflow producing assets
+  2) checksum generation/verification logic
+  3) extension download+cache+launch logic
+  4) docs updates
 
 After edits:
-- [ ] Run `cargo fmt` and `cargo test` in server/
-- [ ] Summarize: what changed, why, commands run, limitations
-- [ ] Ensure repo is clean: `git status` shows no target artifacts
-
----
-
-## 15) Explicit Phase 3 Deliverables (file-by-file)
-
-### `server/`
-- Add/extend modules for:
-  - configuration handling
-  - context gating logic
-  - improved string/segment extraction
-  - Windows prefix support (if enabled)
-- Expand tests (prefer multiple small test files).
-
-### Extension (`src/lib.rs`, `extension.toml`)
-- Ensure server launch remains stable.
-- Ensure language server remains registered for Python.
-- Do not add download logic.
-
-### `.gitignore`
-- Ensure build artifacts ignored (already done; verify).
-
-### `README.md`
-- Add configuration reference
-- Add “when completions appear” explanation
-- Update manual test plan and troubleshooting
-
----
-
-## 16) What NOT to do (hard stops)
-
-- Do not implement release/download pipeline.
-- Do not implement non-completion LSP features.
-- Do not add heavy parsing frameworks without explicit justification.
-- Do not break Phase 2 basic functionality while improving gating/config.
+- [ ] Run local tests where possible:
+  - server tests
+  - extension build sanity check if applicable
+- [ ] Summarize changes + commands run
+- [ ] Confirm no binaries committed
+- [ ] Confirm `.gitignore` updated if needed
 
 ---

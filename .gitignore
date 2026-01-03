@@ -1,2 +1,6 @@
 /target/
 /server/target/
+/dist/
+/release/
+*.wasm
+/cache/

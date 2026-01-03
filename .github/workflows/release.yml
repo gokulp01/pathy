@@ -1,0 +1,137 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag (e.g. v0.4.0)"
+        required: true
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-13
+            target: x86_64-apple-darwin
+            archive_os: macos
+            archive_arch: x86_64
+            ext: tar.gz
+          - os: macos-14
+            target: aarch64-apple-darwin
+            archive_os: macos
+            archive_arch: aarch64
+            ext: tar.gz
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            archive_os: linux
+            archive_arch: x86_64
+            ext: tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive_os: windows
+            archive_arch: x86_64
+            ext: zip
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          target: ${{ matrix.target }}
+          override: true
+
+      - name: Set version
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          fi
+          echo "VERSION=${VERSION#v}" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+        working-directory: server
+
+      - name: Package
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          EXT: ${{ matrix.ext }}
+          ARCHIVE_OS: ${{ matrix.archive_os }}
+          ARCHIVE_ARCH: ${{ matrix.archive_arch }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+import os
+import pathlib
+import tarfile
+import zipfile
+
+version = os.environ["VERSION"]
+name = f"pathy-server_{version}_{os.environ['ARCHIVE_OS']}_{os.environ['ARCHIVE_ARCH']}"
+out_dir = pathlib.Path("dist")
+out_dir.mkdir(parents=True, exist_ok=True)
+
+bin_path = pathlib.Path(f"server/target/{os.environ['TARGET']}/release/pathy-server")
+if os.environ["EXT"] == "zip":
+    bin_path = bin_path.with_suffix(".exe")
+    arc_name = "pathy-server.exe"
+    zip_path = out_dir / f"{name}.zip"
+    data = bin_path.read_bytes()
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        info = zipfile.ZipInfo(arc_name)
+        info.date_time = (1980, 1, 1, 0, 0, 0)
+        info.external_attr = 0o755 << 16
+        zf.writestr(info, data)
+else:
+    arc_name = "pathy-server"
+    tar_path = out_dir / f"{name}.tar.gz"
+    with tarfile.open(tar_path, "w:gz") as tf:
+        tarinfo = tarfile.TarInfo(arc_name)
+        tarinfo.size = bin_path.stat().st_size
+        tarinfo.mtime = 0
+        tarinfo.uid = 0
+        tarinfo.gid = 0
+        tarinfo.uname = ""
+        tarinfo.gname = ""
+        tarinfo.mode = 0o755
+        with bin_path.open("rb") as f:
+            tf.addfile(tarinfo, f)
+PY
+
+      - name: Checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+import hashlib
+import os
+import pathlib
+
+version = os.environ["VERSION"]
+root = pathlib.Path("dist")
+lines = []
+for path in sorted(root.iterdir()):
+    if path.name.startswith("checksums-"):
+        continue
+    data = path.read_bytes()
+    digest = hashlib.sha256(data).hexdigest()
+    lines.append(f"{digest}  {path.name}\n")
+root.joinpath(f"checksums-{version}.txt").write_text("".join(lines))
+PY
+
+      - name: Upload artifacts
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

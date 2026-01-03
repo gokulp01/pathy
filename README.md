@@ -41,7 +41,26 @@ Run:
 cargo run
 ```
 
-## Configuration (Phase 3)
+## Capabilities (Phase 4)
+
+Pathy requires these extension capabilities:
+
+- `process:exec` (launch the server)
+- `download_file` (download release assets)
+
+If your Zed config restricts capabilities, add these entries to
+`granted_extension_capabilities`:
+
+```json
+{
+  "granted_extension_capabilities": [
+    { "kind": "process:exec", "command": "*", "args": ["**"] },
+    { "kind": "download_file", "host": "github.com", "path": ["**"] }
+  ]
+}
+```
+
+## Configuration (Phase 4)
 
 Configure the server via Zed settings. Keep your primary Python LSP first and
 add `pathy` after it:
@@ -64,24 +83,47 @@ add `pathy` after it:
         "context_gating": "smart",
         "base_dir": "file_dir",
         "max_results": 80,
-        "show_hidden": false,
-        "ignore_globs": [
-          "**/.git/**",
-          "**/.venv/**",
-          "**/venv/**",
-          "**/__pycache__/**",
-          "**/.pytest_cache/**",
-          "**/.mypy_cache/**",
-          "**/.ruff_cache/**",
-          "**/node_modules/**"
-        ]
+        "show_hidden": false
       }
     }
   }
 }
 ```
 
-### Settings reference
+### Extension settings (auto-download)
+
+These settings live under `lsp.pathy.settings` and control binary download
+behavior:
+
+- `auto_download` (bool, default: true)
+- `server_path` (string | null, default: null)
+- `release_channel` ("stable" only for now)
+- `base_url` (string | null, advanced)
+- `verify_checksum` (bool, default: true)
+- `cache_dir` (string | null, advanced; relative to the extension working dir)
+
+Precedence:
+1) `server_path` if set and exists
+2) else `auto_download` if true
+3) else error with instructions
+
+Example:
+
+```json
+{
+  "lsp": {
+    "pathy": {
+      "settings": {
+        "auto_download": true,
+        "verify_checksum": true,
+        "server_path": null
+      }
+    }
+  }
+}
+```
+
+### Server settings (Phase 3)
 
 Behavior / gating:
 - `enable` (bool, default: true)
@@ -122,58 +164,45 @@ Pathy uses two gates:
 
 If neither gate matches, completions stay quiet to avoid noise.
 
-## Local Testing (Phase 3)
+## Release artifacts (Phase 4)
 
-Build and run the server:
+Asset naming scheme:
+- `pathy-server_<VERSION>_<OS>_<ARCH>.tar.gz` (macOS/Linux)
+- `pathy-server_<VERSION>_<OS>_<ARCH>.zip` (Windows)
+- `checksums-<VERSION>.txt`
 
-```sh
-cd server
-cargo build
-cargo run
-```
+Supported OS/arch values:
+- OS: `macos`, `linux`, `windows`
+- ARCH: `x86_64`, `aarch64`
 
-Install as a dev extension in Zed:
+The extension downloads assets for its own version (not “latest”).
 
-1. Open Zed and go to Extensions.
-2. Choose Install Dev Extension.
-3. Select this repo root (the folder containing `extension.toml`).
+## Local Testing (Phase 4)
 
-Minimal Python snippet to test:
+1) Remove cache directory (default: `cache/` under the extension working dir).
+2) Install the dev extension.
+3) Open a Python file and trigger completion inside `open("./")`.
+4) Confirm the binary was downloaded and cached.
+5) Restart Zed and confirm it reuses the cached binary.
 
-```python
-from pathlib import Path
-import pandas as pd
+## Troubleshooting
 
-open("./")
-Path("./")
-pd.read_csv("./")
+- Download fails: check network access and that GitHub is reachable.
+- Checksum fails: delete the cached archive and retry; verify release assets.
+- Offline: set `server_path` to a locally built binary.
+- Server won’t launch: ensure `process:exec` capability is granted.
+- No completions: confirm language server ordering includes `pathy` after primary.
 
-print("hello")
-print("./" )  # prefix fallback should still work
-```
+## Release process (maintainers)
 
-Notes:
-- The server uses `/` as the inserted path separator for portability.
-- The server binary path is expected at `server/target/debug/pathy-server`.
-- If Zed prompts for permissions, grant `process:exec` to allow launching the server.
+1) Bump version in `extension.toml` and `Cargo.toml`.
+2) Update `CHANGELOG.md`.
+3) Tag `vX.Y.Z` and push the tag.
+4) Verify GitHub Release assets and checksums.
 
-### Troubleshooting
+## Publishing to Zed registry
 
-- If completions don’t appear, trigger completion manually (e.g. Ctrl-Space).
-- Check logs: Zed command palette → “Open Log”, or run `zed --foreground`.
-- Verify your Python language server ordering includes `pathy` after the
-  primary server.
-- If the server won’t launch, confirm it was built and is executable.
-- If the WASM build fails, install the `wasm32-wasip1` target and retry.
-
-### Acceptance checklist (Phase 3)
-
-- [ ] Completions appear in `open("...")`, `Path("...")`, and `read_csv("...")`.
-- [ ] Completions do not appear in unrelated strings (e.g., `print("hello")`).
-- [ ] Prefix fallback works anywhere inside a string with `./` or `../`.
-- [ ] Selecting a completion replaces only the current path segment.
-- [ ] Primary Python LSP features (e.g. go-to-definition) still work.
-- [ ] No crash when the directory doesn’t exist.
+Open a PR against `zed-industries/extensions` adding this repository.
 
 ## Known limitations
 
