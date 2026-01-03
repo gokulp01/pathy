@@ -94,9 +94,16 @@ jobs:
           path: dist
           merge-multiple: true
       - name: Upload release assets
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            dist/*
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          if [ -n "${{ inputs.version }}" ]; then
+            tag="${{ inputs.version }}"
+          fi
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --title "$tag" --notes ""
+          fi
+          gh release upload "$tag" dist/* --clobber
