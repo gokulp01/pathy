@@ -5,7 +5,12 @@ provide filesystem path completions inside Python string literals. It runs as a
 secondary language server and only advertises completion capability.
 
 
-![demo](/static/pathy-sm.gif)
+<p align="center">
+  <video width="600" controls autoplay loop muted>
+    <source src="/static/pathy-sm.mp4" type="video/mp4">
+    Your browser does not support the video tag.
+  </video>
+</p>
 
 
 ## Install (dev)
