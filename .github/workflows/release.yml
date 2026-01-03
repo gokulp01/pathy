@@ -72,11 +72,7 @@ jobs:
           python -c "$script"
 
       - name: Checksums
-        shell: bash
-        run: |
-          set -euo pipefail
-          script=$'import hashlib\nimport os\nimport pathlib\n\nversion = os.environ["VERSION"]\nroot = pathlib.Path("dist")\nlines = []\nfor path in sorted(root.iterdir()):\n    if path.name.startswith("checksums-"):\n        continue\n    data = path.read_bytes()\n    digest = hashlib.sha256(data).hexdigest()\n    lines.append(f"{digest}  {path.name}\\n")\nroot.joinpath(f"checksums-{version}.txt").write_text("".join(lines))\n'
-          python -c "$script"
+        run: echo "checksums generated in release job"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -94,6 +90,20 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      - name: Set version
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          fi
+          echo "VERSION=${VERSION#v}" >> "$GITHUB_ENV"
+      - name: Checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          script=$'import hashlib\nimport os\nimport pathlib\n\nversion = os.environ["VERSION"]\nroot = pathlib.Path("dist")\nlines = []\nfor path in sorted(root.iterdir()):\n    if path.name.startswith(\"checksums-\"):\n        continue\n    if path.is_dir():\n        continue\n    data = path.read_bytes()\n    digest = hashlib.sha256(data).hexdigest()\n    lines.append(f\"{digest}  {path.name}\\n\")\nroot.joinpath(f\"checksums-{version}.txt\").write_text(\"\".join(lines))\n'
+          python -c "$script"
       - name: Upload release assets
         shell: bash
         env:
