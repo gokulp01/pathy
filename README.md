@@ -4,6 +4,10 @@ Pathy is a Zed extension (Rust -> WASM) that launches a sidecar LSP server to
 provide filesystem path completions inside Python string literals. It runs as a
 secondary language server and only advertises completion capability.
 
+
+![demo](/static/pathy-sm.gif)
+
+
 ## Install (dev)
 
 1) Build the extension (Zed builds WASM automatically) or open the repo in Zed.
