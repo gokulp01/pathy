@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 
-use zed_extension_api as zed;
 use zed::settings::LspSettings;
 use zed::{download_file, make_file_executable, serde_json, Command, DownloadedFileType};
+use zed_extension_api as zed;
 
 const LANGUAGE_SERVER_ID: &str = "pathy";
 const DEFAULT_REPO: &str = "gokulp01/pathy";
@@ -54,8 +54,7 @@ impl zed::Extension for PathyExtension {
         if let Some(path) = config.server_path.as_ref() {
             let resolved = PathBuf::from(path);
             if resolved.exists() {
-                return Ok(Command::new(resolved.to_string_lossy())
-                    .envs(worktree.shell_env()));
+                return Ok(Command::new(resolved.to_string_lossy()).envs(worktree.shell_env()));
             }
             return Err(format!("server_path not found: {path}"));
         }
@@ -77,11 +76,15 @@ impl zed::Extension for PathyExtension {
             return Ok(Command::new(cache_path.to_string_lossy()).envs(worktree.shell_env()));
         }
 
-        let base_url = config.base_url.clone().unwrap_or_else(|| {
-            format!(
-                "https://github.com/{DEFAULT_REPO}/releases/download/v{version}"
-            )
-        });
+        let (mut base_url, fallback_url) = match config.base_url.clone() {
+            Some(custom) => (custom, None),
+            None => (
+                format!("https://github.com/{DEFAULT_REPO}/releases/download/v{version}"),
+                Some(format!(
+                    "https://github.com/{DEFAULT_REPO}/releases/download/{version}"
+                )),
+            ),
+        };
 
         let asset_name = asset_name_for(&version, &platform)?;
         let asset_path = cache_root.join(&asset_name);
@@ -91,12 +94,30 @@ impl zed::Extension for PathyExtension {
         ensure_dir(cache_root.as_path())?;
 
         let checksum_path_str = checksum_path.to_string_lossy().to_string();
-        download_file(
+        let checksum_result = download_file(
             &checksum_url,
             &checksum_path_str,
             DownloadedFileType::Uncompressed,
-        )
-        .map_err(|err| format!("checksum download failed: {err}"))?;
+        );
+        if let Err(err) = checksum_result {
+            if let Some(fallback) = fallback_url {
+                let fallback_checksum_url = format!("{fallback}/checksums-{version}.txt");
+                let fallback_result = download_file(
+                    &fallback_checksum_url,
+                    &checksum_path_str,
+                    DownloadedFileType::Uncompressed,
+                );
+                if fallback_result.is_ok() {
+                    base_url = fallback;
+                } else if let Err(fallback_err) = fallback_result {
+                    return Err(format!(
+                        "checksum download failed: {err}; fallback failed: {fallback_err}"
+                    ));
+                }
+            } else {
+                return Err(format!("checksum download failed: {err}"));
+            }
+        }
 
         let checksums = read_to_string(&checksum_path)?;
         let expected = parse_checksum(&checksums, &asset_name)
