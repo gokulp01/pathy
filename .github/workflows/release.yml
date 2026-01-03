@@ -9,6 +9,8 @@ on:
       version:
         description: "Version tag (e.g. v0.4.0)"
         required: true
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -69,43 +71,15 @@ jobs:
           ARCHIVE_ARCH: ${{ matrix.archive_arch }}
         run: |
           set -euo pipefail
-          python - <<'PY'
-          import os
-          import pathlib
-          import shutil
-
-          version = os.environ["VERSION"]
-          name = f"pathy-server_{version}_{os.environ['ARCHIVE_OS']}_{os.environ['ARCHIVE_ARCH']}{os.environ['EXT']}"
-          out_dir = pathlib.Path("dist")
-          out_dir.mkdir(parents=True, exist_ok=True)
-
-          bin_path = pathlib.Path(f"server/target/{os.environ['TARGET']}/release/pathy-server")
-          if os.environ["EXT"]:
-              bin_path = bin_path.with_suffix(os.environ["EXT"])
-
-          shutil.copy2(bin_path, out_dir / name)
-          PY
+          script=$'import os\nimport pathlib\nimport shutil\n\nversion = os.environ["VERSION"]\nname = f"pathy-server_{version}_{os.environ[\'ARCHIVE_OS\']}_{os.environ[\'ARCHIVE_ARCH\']}{os.environ[\'EXT\']}"\nout_dir = pathlib.Path("dist")\nout_dir.mkdir(parents=True, exist_ok=True)\n\nbin_path = pathlib.Path(f"server/target/{os.environ[\'TARGET\']}/release/pathy-server")\nif os.environ["EXT"]:\n    bin_path = bin_path.with_suffix(os.environ["EXT"])\n\nshutil.copy2(bin_path, out_dir / name)\n'
+          python -c "$script"
 
       - name: Checksums
         shell: bash
         run: |
           set -euo pipefail
-          python - <<'PY'
-import hashlib
-import os
-import pathlib
-
-version = os.environ["VERSION"]
-root = pathlib.Path("dist")
-lines = []
-for path in sorted(root.iterdir()):
-    if path.name.startswith("checksums-"):
-        continue
-    data = path.read_bytes()
-    digest = hashlib.sha256(data).hexdigest()
-    lines.append(f"{digest}  {path.name}\n")
-root.joinpath(f"checksums-{version}.txt").write_text("".join(lines))
-PY
+          script=$'import hashlib\nimport os\nimport pathlib\n\nversion = os.environ["VERSION"]\nroot = pathlib.Path("dist")\nlines = []\nfor path in sorted(root.iterdir()):\n    if path.name.startswith("checksums-"):\n        continue\n    data = path.read_bytes()\n    digest = hashlib.sha256(data).hexdigest()\n    lines.append(f"{digest}  {path.name}\\n")\nroot.joinpath(f"checksums-{version}.txt").write_text("".join(lines))\n'
+          python -c "$script"
 
       - name: Upload artifacts
         uses: softprops/action-gh-release@v2
