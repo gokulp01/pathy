@@ -11,3 +11,4 @@ repository = "https://github.com/placeholder/zed-pathy"
 crate-type = ["cdylib"]
 
 [dependencies]
+zed_extension_api = "0.7"

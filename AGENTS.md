@@ -1,226 +1,330 @@
-# AGENTS.md — Codex Working Agreement (Phase 1: Repo Scaffold)
+# AGENTS.md — Codex Working Agreement (Phase 2: Minimal Working Path Completions)
 
-This repository is being built **from an empty repo** into a **Zed extension** that launches a **sidecar LSP server** to provide **filesystem path completions inside Python string literals**.
+This repo is a **Zed extension** that launches a **sidecar LSP server** to provide **filesystem path completions inside Python string literals**.
 
-Codex: treat this file as the source of truth for how to work in this repo.
+Codex: treat this file as the source of truth for Phase 2. If there is any conflict between user prompts and this file, follow this file.
 
 ---
 
-## 0) Project North Star
+## 0) Project North Star (do not lose sight)
 
 ### What we are building
-- A **Zed extension (Rust → WASM)** that:
-  - provides a **secondary Python language server** (does not replace the user’s main Python LSP)
-  - launches our server via `language_server_command` per Zed extension APIs
-- A **native LSP server** (separate subproject) that:
-  - implements `textDocument/completion`
-  - offers **path completions** when the cursor is inside Python string literals (later phases add context awareness)
+- A **Zed extension (Rust → WASM)** that launches a **secondary** Python language server.
+- A **native LSP server** (separate project in `server/`) that implements **only** what we need for:
+  - `textDocument/completion` → filesystem path suggestions
+- The sidecar server must **augment** the user’s main Python LSP (pyright/basedpyright/ruff-lsp/etc.), not replace it.
 
-### Key constraint (do not violate)
-- Zed extensions do **not** have VS Code–style hooks for arbitrary editor keystrokes or direct buffer edits.
-- Therefore, **path intellisense must be delivered via LSP completions**, not editor macro hooks.
-
----
-
-## 1) Phase 1 Scope (THIS PHASE ONLY)
-
-### Goal of Phase 1
-Create a clean, buildable, documented **skeleton** for:
-1) Zed extension root (WASM crate + manifest)
-2) LSP server subproject (empty-but-buildable)
-3) Docs + license + dev install instructions
-4) “Working agreements” so future Codex runs stay consistent
-
-### Non-goals for Phase 1
-- Do NOT implement any LSP completion logic yet.
-- Do NOT add CI workflows yet.
-- Do NOT add binary downloading / release automation yet.
-- Do NOT add lots of dependencies “just in case.”
-
-### Phase 1 Definition of Done
-- Repo has a valid **Zed extension layout** with `extension.toml` at the repo root.
-- Extension compiles (or at least has a standard build path documented) and is installable as a dev extension.
-- `server/` exists as a separate project with a basic build target.
-- README explains:
-  - what the repo is
-  - how to install as a dev extension
-  - how to run/build the server project
-- License file exists (MIT).
-- Git is initialized and Phase 1 changes are committed.
+### Hard constraints (non-negotiable)
+- No editor keystroke hooks / direct buffer edits: deliver functionality via **LSP completions**.
+- The sidecar server must **not** claim features like definition/rename/hover; it should advertise **completion only** to avoid interfering.
+- Keep Phase 2 small and shippable: “It works” > “It’s perfect”.
 
 ---
 
-## 2) Expected Repository Layout (after Phase 1)
+## 1) Phase 2 Scope (THIS PHASE ONLY)
 
-Repo root:
-- `extension.toml` (required by Zed)
-- `Cargo.toml` + `src/lib.rs` (extension WASM crate)
-- `server/` (separate project; preferred: Rust)
-- `README.md`
-- `LICENSE`
-- `AGENTS.md` (this file)
-- optional: `testdata/` (used in later phases)
+### Phase 2 goal
+Deliver a **minimal, working MVP**:
+1) The LSP server can run (stdio) and serve completions.
+2) When editing Python in Zed, inside a string literal, typing a path-ish prefix produces filesystem completion suggestions.
+3) Zed extension launches this server as an additional Python language server.
+4) Local manual testing instructions exist and are reliable.
 
-Do NOT nest `extension.toml` under a subdirectory. Zed expects it at the extension root.
-
----
-
-## 3) Codex Working Rules (follow every time)
-
-### 3.1 Always start with a plan (before editing)
-Before you change files, you must:
-1) Summarize the task in 1–2 sentences
-2) List the exact files you will create/modify
-3) Describe the smallest-possible set of changes to reach the goal
-
-### 3.2 Keep diffs small and scoped
-- Prefer multiple small tasks over one huge task.
-- Do not refactor unrelated code.
-- Do not change formatting of unrelated files.
-
-### 3.3 No surprise dependencies
-- **Do not add new dependencies** unless:
-  - they are required to build the skeleton, or
-  - the user explicitly approves
-- If you think a dependency is necessary, stop and explain:
-  - why it’s needed
-  - alternatives
-  - impact on build complexity
-
-### 3.4 Always validate
-After changes:
-- Run the most appropriate build/format checks.
-- If a build command is uncertain, document the assumption clearly in README.
-- Summarize results (success/failure) and next steps.
-
-### 3.5 Be explicit about assumptions
-If you assume anything (platform, toolchain availability, Zed behavior), say so clearly.
-
-### 3.6 Do not leak secrets
-- Never request or print API keys.
-- Never embed tokens in repo files.
-- If a command requires credentials, instruct the user to provide them via environment/config, not in source.
+### Phase 2 non-goals
+Do NOT implement these yet (Phase 3+):
+- Downloading binaries / release automation
+- Workspace indexing or recursive scanning
+- `.gitignore`-aware results
+- Deep Python AST parsing or full call-site awareness
+- Perfect parsing of triple-quoted strings, f-strings, or raw-string edge cases
+- Snippets / tabstops / code actions
+- UI beyond standard completion menu
+- Performance tuning beyond basic safety caps and a small cache
 
 ---
 
-## 4) Tooling Standards
+## 2) Definition of Done (Phase 2)
 
-### Rust
-- Prefer Rust 2021 edition unless Zed docs require otherwise.
-- Avoid `unsafe` unless absolutely necessary (and then document why).
-- Default to:
-  - `cargo fmt`
-  - `cargo clippy` (if configured)
-  - `cargo test`
-  - `cargo build`
-
-### Filesystem + LSP server (future phases)
-- Server should remain a separate subproject (do not mix server logic into WASM crate).
-- WASM crate should stay thin: launching server + wiring config.
-
----
-
-## 5) Zed Extension Guidelines (applies to all phases)
-
-### Extension responsibilities
-- Provide `extension.toml` metadata and entry points.
-- Launch our sidecar LSP server using Zed extension APIs.
-- Keep extension logic minimal and stable.
-
-### Language server positioning
-- The server must be designed to work as a **secondary** server.
-- Avoid advertising capabilities beyond completion (later phases), to prevent interfering with primary Python LSP features.
+Phase 2 is “done” when all are true:
+- ✅ `server/` builds and runs locally with `cargo run` (or equivalent), serving LSP over stdio.
+- ✅ The server responds to:
+  - initialize / shutdown / exit
+  - textDocument/didOpen
+  - textDocument/didChange
+  - textDocument/completion
+- ✅ The completion feature works in Zed for Python:
+  - User can type `open("./")` and trigger completion (auto or manual) and see filesystem suggestions.
+- ✅ The extension launches the server for Python without breaking the user’s main Python LSP.
+- ✅ Repo has clean Git hygiene:
+  - `target/` directories are ignored and not committed.
+- ✅ README contains a Phase 2 “Local Testing” section with exact steps.
 
 ---
 
-## 6) Documentation Requirements (Phase 1 minimum)
+## 3) Repository Layout (expected after Phase 2)
 
-### README must include
-1) What this is
-2) How to build the extension (WASM crate) — or at least how Zed loads it if build is handled by Zed
-3) How to install as a dev extension in Zed (high-level steps)
-4) How to build/run the `server/` subproject
-5) Where configuration will live in later phases (brief mention only)
-
-### LICENSE
-- MIT license file must be present.
-
----
-
-## 7) Git Workflow (mandatory)
-
-### Checkpoints
-Before any non-trivial change:
-- Create a git checkpoint commit OR ensure a clean working tree.
-
-After completing the task:
-- Commit with a clear message (e.g., `phase 1: scaffold extension + server skeleton`)
-
-### Commit message style
-- Use `phase N: …` prefix when aligned with project phases.
-- Keep messages descriptive and short.
-
----
-
-## 8) How Codex Should Summarize Work (end of task)
-
-At the end of each task, provide:
-1) What changed (bullet list)
-2) Why it changed (tie back to phase goals)
-3) Commands run and results
-4) Any follow-ups needed
-
----
-
-## 9) Phase 1 Implementation Checklist (for Codex)
-
-### Files to create (minimum)
+Root:
 - `extension.toml`
-- `Cargo.toml`
-- `src/lib.rs`
-- `server/` (with its own project skeleton; prefer `server/Cargo.toml` and `server/src/main.rs`)
-- `README.md`
-- `LICENSE`
-- (this) `AGENTS.md`
+- `Cargo.toml`, `src/lib.rs` (extension WASM)
+- `server/`:
+  - `Cargo.toml`, `src/main.rs` (LSP server)
+- `README.md`, `LICENSE`, `AGENTS.md`
+- `.gitignore` includes `target/` and `server/target/`
 
-### extension.toml content guidance
-- Include: id, name, version, schema_version, description, authors, repository (placeholder ok)
-- Keep metadata consistent with README naming.
-
-### Rust extension crate guidance
-- Minimal compileable skeleton.
-- Avoid heavy logic.
-- If Zed requires specific crate types/build targets, follow Zed docs and document build steps in README.
-
-### Server skeleton guidance
-- Minimal “hello LSP” placeholder is fine later; for Phase 1 it can be an empty main that builds.
-- No networking or downloads.
+No build output directories should be committed.
 
 ---
 
-## 10) Safety / Platform Notes
+## 4) Zed Integration Requirements
 
-- Assume users may be on macOS/Linux/Windows.
-- Avoid shell scripts that only work on one platform unless clearly labeled.
-- Prefer documenting commands in a cross-platform way (or give OS-specific variants).
+### 4.1 Sidecar must be a *secondary* Python language server
+- The user should keep their main Python LSP first.
+- Our server should be listed after it in:
+  - `languages.Python.language_servers`
+
+Codex must:
+- Update README with a **copy/paste settings snippet** showing how to add this server without removing defaults (use `...` semantics where applicable).
+
+### 4.2 Extension capabilities
+- If Zed requires capabilities to spawn processes, Phase 2 must:
+  - request the minimal capability needed to execute a local binary (`process:exec`)
+  - document how the user can grant it in settings if needed
+- Phase 2 must NOT request download/install capabilities.
+
+### 4.3 Don’t interfere with other LSP features
+- In LSP `initialize` response, advertise only:
+  - `completionProvider` (and minimal fields needed)
+- Do not implement handlers or advertise capabilities for:
+  - definition, references, rename, hover, formatting, codeAction, etc.
 
 ---
 
-## 11) What NOT to do in Phase 1 (hard stops)
+## 5) LSP Server: Minimal Protocol Contract
 
-- Do not implement actual completion behavior.
-- Do not add CI workflows.
-- Do not add binary download logic or require special Zed capabilities.
-- Do not add large dependency stacks.
-- Do not change repo structure away from standard Zed expectations.
+Codex must implement the minimal subset correctly and robustly:
+
+### 5.1 Must support
+- `initialize` → record `rootUri`/`rootPath` if provided
+- `initialized` (can be no-op)
+- `shutdown` and `exit`
+- `textDocument/didOpen` → store text by URI
+- `textDocument/didChange` (incremental preferred; full-sync acceptable for MVP if documented)
+- `textDocument/completion` → compute and return items
+
+### 5.2 Logging
+- Log to **stderr** (never stdout), because stdout is reserved for LSP JSON-RPC.
+- Keep logs concise; include a debug flag in server args if helpful.
+
+### 5.3 Dependencies policy (strict)
+- You may add the minimal Rust crates needed for LSP and JSON-RPC.
+- Use a small, standard set (e.g., `lsp-server` + `lsp-types`, or `tower-lsp`) but do not add extra frameworks.
+- If you add a crate, document why in a short comment in `server/Cargo.toml` or README.
 
 ---
 
-## 12) Quick Reference: “Good” Phase 1 Output
+## 6) Completion Behavior Specification (MVP rules)
 
-✅ A clean scaffold that a human can open, understand, and build  
-✅ Minimal metadata + docs in place  
-✅ Clear separation between extension and server subproject  
-✅ No premature complexity
+### 6.1 When to offer completions
+Offer path completions only when ALL are true:
+1) The file is a Python document (language id or file extension `.py`).
+2) The cursor is within a string literal (MVP heuristic acceptable).
+3) The text immediately before the cursor has a **path-ish prefix**, e.g.:
+   - `./`
+   - `../`
+   - `/`
+   - `~`
+   - (optional) `C:\` or `\\server\share` on Windows
+
+If any condition fails, return:
+- `null` or empty list (depending on LSP server library style).
+
+### 6.2 “Inside string literal” heuristic (Phase 2)
+Phase 2 does NOT require a full Python parser. MVP heuristic should:
+- Operate at least on the current line and possibly a small window around the cursor.
+- Handle single and double quotes on the same line.
+- Avoid offering completions if the cursor appears outside quotes.
+- It’s okay to miss some cases; document limitations.
+
+### 6.3 What entries to suggest
+- List immediate children of the resolved directory:
+  - directories and files
+- Suggested ordering:
+  - directories first (optional)
+  - then files
+- Filter by the typed prefix after the directory boundary.
+
+### 6.4 What to insert
+- Only replace the “current path segment” (not the entire string).
+- Use an LSP `textEdit` (or insertText + range) to:
+  - replace the segment from segmentStart..cursor with the completion remainder or full entry as appropriate.
+- If the selected entry is a directory:
+  - optionally append `/` and keep completion usable (Phase 2 may not keep menu open; ok)
+
+### 6.5 Safety caps (must have)
+- Cap number of returned items (e.g., 50 or 100).
+- If a directory listing is huge, stop early.
+- Never recursively scan.
+
+---
+
+## 7) Path Resolution Rules (MVP)
+
+### 7.1 Determine base directory
+Given `documentUri`:
+- If URI maps to a real file path:
+  - base for relative paths (`./`, `../`, no leading slash) should default to **directory of current file**
+- If URI is not a real file path (unsaved buffer):
+  - fallback to `rootUri` from initialize if available
+  - otherwise return no completions
+
+### 7.2 Interpret prefixes
+- `./foo` → base = fileDir
+- `../foo` → base = parent(fileDir)
+- `/foo` (Unix) → base = `/`
+- `~` → base = user home (if resolvable)
+- Windows:
+  - `C:\foo` → base = `C:\`
+  - `\\server\share\foo` → base = `\\server\share\`
+
+### 7.3 Normalize separators
+- Phase 2 can choose one strategy and document it:
+  - Prefer `/` insertions for Python portability (recommended), OR
+  - Use OS-native separators
+- Whatever you choose: be consistent and document it.
+
+---
+
+## 8) Performance & Caching (minimum viable)
+
+### 8.1 Directory listing cache
+Implement a tiny cache to avoid re-reading the same directory on every keystroke:
+- Key: absolute directory path
+- Value: list of entries + timestamp
+- TTL: short (e.g., 250ms–2s)
+- Keep size bounded (e.g., last 32 directories)
+
+### 8.2 Avoid slow operations
+- Don’t stat every file if not needed.
+- Don’t resolve symlinks recursively.
+- Prefer “list names first” and only mark dir/file if cheap.
+
+---
+
+## 9) Testing Requirements (Phase 2)
+
+### 9.1 Unit tests (server)
+Add tests for logic that does not require running Zed:
+- Extracting “current segment” boundaries within a string
+- Detecting path-ish prefixes
+- Resolving base directories given:
+  - file path
+  - root uri fallback
+- Filtering and sorting items
+
+Tests should run with `cargo test` in `server/`.
+
+### 9.2 Manual test plan (must be documented in README)
+Codex must add a “Local Testing (Phase 2)” section with:
+1) How to build and run the server (`cargo build` / `cargo run`)
+2) How to build/install the dev extension in Zed
+3) The Zed settings snippet to enable the sidecar server for Python
+4) A minimal Python snippet to test:
+   - `open("./")`
+   - `open("../")`
+   - `open("~/")` (if supported)
+5) Where to look for logs:
+   - `zed: open log` or `zed --foreground`
+
+### 9.3 Acceptance checklist (copy/paste into README)
+Include a short checklist the user can tick:
+- completions appear
+- selecting inserts correct text
+- no interference with go-to-definition from main Python LSP
+- no crash if directory doesn’t exist
+
+---
+
+## 10) Git Hygiene (mandatory)
+
+### 10.1 Ignore build artifacts
+Ensure `.gitignore` exists and includes:
+- `/target/`
+- `/server/target/`
+No `target/` directories should ever be committed.
+
+### 10.2 Phase 2 commits
+- Use a single clear commit after Phase 2 is stable:
+  - `phase 2: minimal path completions via sidecar LSP`
+- Use intermediate checkpoint commits if needed, but keep history readable.
+
+---
+
+## 11) Codex Execution Rules (how to behave)
+
+### 11.1 Always begin with a plan
+Before editing files, Codex must:
+- describe the plan
+- list files to touch
+- list commands it expects to run
+
+### 11.2 Prefer smallest working increment
+- First: make server respond to initialize/shutdown.
+- Second: store document text.
+- Third: implement simplest completion with hardcoded directory (for a quick smoke test).
+- Fourth: implement real path extraction and listing.
+
+### 11.3 If something fails
+- Do not “thrash” with repeated large changes.
+- Report the failure reason, propose 1–2 fixes, choose the safest one.
+
+### 11.4 No scope creep
+Do not add:
+- downloads
+- release workflows
+- complex settings schemas
+- AST parsing frameworks
+Unless explicitly requested and outside Phase 2.
+
+---
+
+## 12) Troubleshooting Guidance (to include in README)
+
+README must include a “Troubleshooting” section:
+- If completions don’t appear:
+  - manually trigger completion in Zed (e.g., Ctrl-Space)
+  - verify the server is running (logs)
+  - confirm language server ordering in settings
+- If server won’t launch:
+  - check extension capabilities requirements
+  - ensure server binary exists and is executable
+- If WASM build fails:
+  - ensure Rust WASI target is installed (`wasm32-wasip1` is common now)
+  - re-run build and check logs
+
+---
+
+## 13) Explicit Phase 2 Deliverables (file-by-file)
+
+### `server/`
+- Implement LSP server in `server/src/main.rs` (or split into modules if it stays small).
+- Add tests under `server/tests/` or `server/src/...` as appropriate.
+
+### Extension (`src/lib.rs` + `extension.toml`)
+- Ensure extension registers a language server command for Python.
+- Make server command predictable for local dev:
+  - either call `server/target/debug/<bin>` with documented build step
+  - or call `<bin>` from PATH (document how to install)
+
+### `README.md`
+- Add “Local Testing (Phase 2)” + troubleshooting + settings snippet.
+
+---
+
+## 14) What NOT to do (hard stops)
+
+- Do not introduce binary downloads or network calls.
+- Do not claim additional LSP capabilities beyond completion.
+- Do not remove or reorder user’s primary Python LSP by default; document how to add ours as secondary.
+- Do not commit `target/` directories.
 
 ---
