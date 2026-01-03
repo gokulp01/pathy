@@ -4,3 +4,4 @@
 /release/
 *.wasm
 /cache/
+AGENTS.md
